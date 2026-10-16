@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { supabase, rpc, must } from '../lib/supabase';
+import { api, rpc, must } from '../lib/api';
 import { useQuery, refreshAll } from '../lib/useQuery';
 import { date, today } from '../lib/format';
 import { uploadBrochureFile, BROCHURE_TYPES } from '../lib/docs';
@@ -12,10 +12,10 @@ type PlanLite = { id: string; code: string; name: string; status: string };
 
 async function load() {
   const [bros, plans, branches, views] = await Promise.all([
-    supabase.from('brochures').select('*').order('created_at', { ascending: false }),
-    supabase.from('plans').select('id, code, name, status').order('name'),
-    supabase.from('branches').select('*').order('name'),
-    supabase.from('brochure_views').select('brochure_id, acknowledged_at')
+    api.from('brochures').select('*').order('created_at', { ascending: false }),
+    api.from('plans').select('id, code, name, status').order('name'),
+    api.from('branches').select('*').order('name'),
+    api.from('brochure_views').select('brochure_id, acknowledged_at')
   ]);
   const seen: Record<string, { seen: number; ack: number }> = {};
   (must(views) as { brochure_id: string; acknowledged_at: string | null }[]).forEach(v => {

@@ -3,7 +3,7 @@
 // of the investor records shown on each branch page.
 import { Fragment, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { supabase, rpc, must, fetchAll } from '../lib/supabase';
+import { api, rpc, must, fetchAll } from '../lib/api';
 import { useQuery, refreshAll } from '../lib/useQuery';
 import { useSettings } from '../lib/auth';
 import { downloadCsv } from '../lib/csv';
@@ -81,7 +81,7 @@ export function BranchCard({ b }: { b: BranchStats }) {
 /* =============================== LIST / MANAGE =============================== */
 export function Branches() {
   const q = useQuery(async () => {
-    const [d, list] = await Promise.all([rpc<Dashboard>('admin_dashboard'), supabase.from('branches').select('*').order('name').then(r => must(r) as Branch[])]);
+    const [d, list] = await Promise.all([rpc<Dashboard>('admin_dashboard'), api.from('branches').select('*').order('name').then(r => must(r) as Branch[])]);
     return { d, list };
   }, []);
   const [edit, setEdit] = useState<Branch | 'new' | null>(null);
@@ -146,15 +146,15 @@ interface InvRow { p: Profile; invs: Investment[]; principal: number; unlocked: 
 interface Line extends Investment { who: Profile; bal: Balance | undefined }
 
 async function loadBranch(code: string) {
-  const branch = must(await supabase.from('branches').select('*').eq('code', code).maybeSingle()) as Branch | null;
+  const branch = must(await api.from('branches').select('*').eq('code', code).maybeSingle()) as Branch | null;
   if (!branch || !branch.id) return null;
-  const people = await fetchAll<Profile>((a, b) => supabase.from('profiles').select('*').eq('role', 'investor').eq('branch_id', branch.id).order('full_name').range(a, b));
+  const people = await fetchAll<Profile>((a, b) => api.from('profiles').select('*').eq('role', 'investor').eq('branch_id', branch.id).order('full_name').range(a, b));
   const ids = people.map(p => p.id);
   const invs: Investment[] = [];
-  for (let i = 0; i < ids.length; i += 150) invs.push(...await fetchAll<Investment>((a, b) => supabase.from('investments').select('*').in('investor_id', ids.slice(i, i + 150)).order('created_at').range(a, b)));
+  for (let i = 0; i < ids.length; i += 150) invs.push(...await fetchAll<Investment>((a, b) => api.from('investments').select('*').in('investor_id', ids.slice(i, i + 150)).order('created_at').range(a, b)));
   const bal: Balance[] = [];
   const invIds = invs.map(i => i.id);
-  for (let i = 0; i < invIds.length; i += 150) bal.push(...must(await supabase.from('investment_balances').select('*').in('investment_id', invIds.slice(i, i + 150))) as Balance[]);
+  for (let i = 0; i < invIds.length; i += 150) bal.push(...must(await api.from('investment_balances').select('*').in('investment_id', invIds.slice(i, i + 150))) as Balance[]);
   const dash = await rpc<Dashboard>('admin_dashboard', { p_branch: branch.id });
   return { branch, people, invs, bal: new Map(bal.map(b => [b.investment_id, b])), dash };
 }

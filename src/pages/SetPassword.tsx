@@ -1,6 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase, friendly } from '../lib/supabase';
+import { api, friendly } from '../lib/api';
 import { useAuth } from '../lib/auth';
 
 /** Landing page for invitation and password-reset links. */
@@ -17,7 +17,7 @@ export function SetPassword() {
     if (pw.length < 10) { setErr('Use at least 10 characters.'); return; }
     if (pw !== pw2) { setErr('The two passwords do not match.'); return; }
     setBusy(true);
-    const { error } = await supabase.auth.updateUser({ password: pw });
+    const { error } = await api.auth.updateUser({ password: pw });
     setBusy(false);
     if (error) { setErr(friendly(error.message)); return; }
     nav('/', { replace: true });

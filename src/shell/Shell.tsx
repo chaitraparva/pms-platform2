@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Icon } from '../ui/Icon';
 import { CrumbCtx } from '../ui/kit';
 import { useAuth } from '../lib/auth';
-import { supabase } from '../lib/supabase';
+import { api } from '../lib/api';
 import { dateShort, initials } from '../lib/format';
 import { onRefresh, refreshAll } from '../lib/useQuery';
 import type { Notification } from '../lib/types';
@@ -29,7 +29,7 @@ export function Shell({ roleLabel, nav, searchPh, onSearch, base }: { roleLabel:
 
   const loadNotifs = useCallback(async () => {
     if (!profile) return;
-    const { data } = await supabase.from('notifications').select('*').eq('user_id', profile.id).order('created_at', { ascending: false }).limit(30);
+    const { data } = await api.from('notifications').select('*').eq('user_id', profile.id).order('created_at', { ascending: false }).limit(30);
     setNotifs((data as Notification[]) || []);
   }, [profile]);
 
@@ -37,12 +37,12 @@ export function Shell({ roleLabel, nav, searchPh, onSearch, base }: { roleLabel:
   useEffect(() => {
     if (!profile) return;
     loadNotifs();
-    const ch = supabase.channel('notif-' + profile.id)
+    const ch = api.channel('notif-' + profile.id)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${profile.id}` }, () => { loadNotifs(); refreshAll(); })
       .subscribe();
     const t = setInterval(loadNotifs, 60000);
     const off = onRefresh(loadNotifs);
-    return () => { clearInterval(t); off(); supabase.removeChannel(ch); };
+    return () => { clearInterval(t); off(); api.removeChannel(ch); };
   }, [profile, loadNotifs]);
 
   useEffect(() => { setMob(false); setPop(''); window.scrollTo(0, 0); }, [loc.pathname]);
@@ -53,9 +53,9 @@ export function Shell({ roleLabel, nav, searchPh, onSearch, base }: { roleLabel:
   }, []);
 
   const unread = notifs.filter(n => !n.read_at).length;
-  const markAll = async () => { await supabase.rpc('mark_notifications_read', { p_ids: null }); loadNotifs(); refreshAll(); };
+  const markAll = async () => { await api.rpc('mark_notifications_read', { p_ids: null }); loadNotifs(); refreshAll(); };
   const openN = async (n: Notification) => {
-    if (!n.read_at) await supabase.rpc('mark_notifications_read', { p_ids: [n.id] });
+    if (!n.read_at) await api.rpc('mark_notifications_read', { p_ids: [n.id] });
     setPop(''); loadNotifs();
     if (n.link) navTo(n.link);
   };

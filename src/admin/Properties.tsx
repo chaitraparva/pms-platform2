@@ -2,7 +2,7 @@
 // parvarealty.ae publishes no listings API or feed, so the Super Admin enters each
 // property with its official link instead of the app scraping the website.
 import { useState } from 'react';
-import { supabase, rpc, must } from '../lib/supabase';
+import { api, rpc, must } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useQuery, refreshAll } from '../lib/useQuery';
 import { date } from '../lib/format';
@@ -12,7 +12,7 @@ import { Badge, ErrorNote, Loading, PageHead, Drawer, Field, IconBtn, useAction 
 import { DataTable, Col } from '../ui/DataTable';
 import { PropertyGrid } from '../investor/Properties';
 
-const load = async () => must(await supabase.from('properties').select('*').order('sort_order').order('created_at', { ascending: false })) as Property[];
+const load = async () => must(await api.from('properties').select('*').order('sort_order').order('created_at', { ascending: false })) as Property[];
 const STATUS: Record<Property['status'], [string, string]> = { draft: ['Draft', 'b-grey'], published: ['Published', 'b-navy'], archived: ['Archived', 'b-red'] };
 const isHttps = (u: string) => /^https:\/\/[^\s]+$/i.test(u.trim());
 

@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { supabase, must } from '../lib/supabase';
+import { api, must } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useQuery } from '../lib/useQuery';
 import { date, dateShort, isUnlocked, LEDGER_TYPE, lockinText, money, moneyShort, rate, today } from '../lib/format';
@@ -19,8 +19,8 @@ export function Overview() {
   const q = useQuery(async () => {
     const [p, led, ann, bros, props] = await Promise.all([
       loadPortfolio(id),
-      supabase.from('ledger_entries').select('*').eq('investor_id', id).order('occurred_on', { ascending: false }).order('created_at', { ascending: false }).limit(6),
-      supabase.from('announcements').select('id,code,title,category,published_at').eq('status', 'published').order('published_at', { ascending: false }).limit(4),
+      api.from('ledger_entries').select('*').eq('investor_id', id).order('occurred_on', { ascending: false }).order('created_at', { ascending: false }).limit(6),
+      api.from('announcements').select('id,code,title,category,published_at').eq('status', 'published').order('published_at', { ascending: false }).limit(4),
       loadMyBrochures(),
       loadProperties()
     ]);

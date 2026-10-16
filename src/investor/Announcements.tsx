@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { supabase, must, rpc, fetchAll } from '../lib/supabase';
+import { api, must, rpc, fetchAll } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { refreshAll, useQuery } from '../lib/useQuery';
 import { date, dateTime } from '../lib/format';
@@ -21,8 +21,8 @@ export function Announcements() {
   const bros = bq.data || [];
   const q = useQuery(async () => {
     const [anns, ns] = await Promise.all([
-      fetchAll<Announcement>((a, b) => supabase.from('announcements').select('*').eq('status', 'published').order('published_at', { ascending: false }).range(a, b)),
-      supabase.from('notifications').select('*').eq('user_id', profile!.id).eq('kind', 'announcement')
+      fetchAll<Announcement>((a, b) => api.from('announcements').select('*').eq('status', 'published').order('published_at', { ascending: false }).range(a, b)),
+      api.from('notifications').select('*').eq('user_id', profile!.id).eq('kind', 'announcement')
     ]);
     const notes = must(ns) as Notification[];
     return { anns, byAnn: Object.fromEntries(notes.filter(n => n.source_id).map(n => [n.source_id!, n])) as Record<string, Notification> };

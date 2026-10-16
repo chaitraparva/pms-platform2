@@ -1,5 +1,5 @@
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { supabase, fetchAll } from '../lib/supabase';
+import { api, fetchAll } from '../lib/api';
 import { useQuery } from '../lib/useQuery';
 import { dateTime, today } from '../lib/format';
 import { downloadCsv } from '../lib/csv';
@@ -22,7 +22,7 @@ const json = (v: unknown) => (v == null ? '' : JSON.stringify(v, null, 2));
 const record = (r: AuditLog) => [r.entity_type, r.entity_label].filter(Boolean).join(' · ');
 
 export function Audit() {
-  const q = useQuery(() => fetchAll<AuditLog>((a, b) => supabase.from('audit_logs').select('*').order('at', { ascending: false }).order('id', { ascending: false }).range(a, b)), []);
+  const q = useQuery(() => fetchAll<AuditLog>((a, b) => api.from('audit_logs').select('*').order('at', { ascending: false }).order('id', { ascending: false }).range(a, b)), []);
   const [params] = useSearchParams();
   const nav = useNavigate();
   const rows = q.data || [];

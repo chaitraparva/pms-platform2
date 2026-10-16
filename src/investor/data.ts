@@ -1,6 +1,6 @@
 // Data loading and small date helpers shared by the investor portal pages.
 // Every figure shown comes from rows the signed-in investor can read (RLS).
-import { supabase, must, fetchAll } from '../lib/supabase';
+import { api, must, fetchAll } from '../lib/api';
 import { addMonths, daysBetween, today } from '../lib/format';
 import type { Accrual, Balance, Investment, LedgerEntry, Payout } from '../lib/types';
 
@@ -21,7 +21,7 @@ export const bal = (p: Portfolio, id: string) => p.balances[id] || ZERO(id);
 export const unpaid = (b: Balance) => Number(b.unapproved) + Number(b.approved) + Number(b.processing);
 
 export async function loadInvestments(investorId: string): Promise<Investment[]> {
-  return must(await supabase.from('investments').select('*').eq('investor_id', investorId).order('created_at', { ascending: false })) as Investment[];
+  return must(await api.from('investments').select('*').eq('investor_id', investorId).order('created_at', { ascending: false })) as Investment[];
 }
 
 export async function loadPortfolio(investorId: string): Promise<Portfolio> {
@@ -29,9 +29,9 @@ export async function loadPortfolio(investorId: string): Promise<Portfolio> {
   const ids = investments.map(i => i.id);
   if (!ids.length) return { investments, balances: {}, accruals: [], payouts: [] };
   const [bs, accruals, payouts] = await Promise.all([
-    supabase.from('investment_balances').select('*').in('investment_id', ids),
-    fetchAll<Accrual>((a, b) => supabase.from('accruals').select('*').in('investment_id', ids).order('accrual_date', { ascending: false }).order('period_no', { ascending: false }).range(a, b)),
-    fetchAll<Payout>((a, b) => supabase.from('payouts').select('*').eq('investor_id', investorId).order('due_date', { ascending: false }).range(a, b))
+    api.from('investment_balances').select('*').in('investment_id', ids),
+    fetchAll<Accrual>((a, b) => api.from('accruals').select('*').in('investment_id', ids).order('accrual_date', { ascending: false }).order('period_no', { ascending: false }).range(a, b)),
+    fetchAll<Payout>((a, b) => api.from('payouts').select('*').eq('investor_id', investorId).order('due_date', { ascending: false }).range(a, b))
   ]);
   const balances: Record<string, Balance> = {};
   (must(bs) as Balance[]).forEach(b => { balances[b.investment_id] = b; });
@@ -39,7 +39,7 @@ export async function loadPortfolio(investorId: string): Promise<Portfolio> {
 }
 
 export async function loadLedger(investorId: string): Promise<LedgerEntry[]> {
-  return fetchAll<LedgerEntry>((a, b) => supabase.from('ledger_entries').select('*').eq('investor_id', investorId)
+  return fetchAll<LedgerEntry>((a, b) => api.from('ledger_entries').select('*').eq('investor_id', investorId)
     .order('occurred_on', { ascending: false }).order('created_at', { ascending: false }).range(a, b));
 }
 

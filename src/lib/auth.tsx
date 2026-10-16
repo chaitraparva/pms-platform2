@@ -1,6 +1,5 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useState } from 'react';
-import type { Session } from '@supabase/supabase-js';
-import { supabase } from './supabase';
+import { api, type Session } from './api';
 import { configureFormat } from './format';
 import type { Profile, Settings } from './types';
 
@@ -42,26 +41,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [needsMfa, setNeedsMfa] = useState(false);
 
   const loadBranding = useCallback(async () => {
-    const { data } = await supabase.rpc('public_branding');
+    const { data } = await api.rpc('public_branding');
     if (data) { setBranding(data as Branding); applyBrand(data as Branding); }
   }, []);
 
   const reloadSettings = useCallback(async () => {
-    const { data } = await supabase.from('settings').select('*').eq('id', 1).maybeSingle();
+    const { data } = await api.from('settings').select('*').eq('id', 1).maybeSingle();
     if (data) { setSettings(data as Settings); configureFormat(data as Settings); applyBrand(data as Settings); }
   }, []);
 
   const reloadProfile = useCallback(async () => {
-    const { data: u } = await supabase.auth.getUser();
+    const { data: u } = await api.auth.getUser();
     if (!u.user) { setProfile(null); return; }
-    const { data } = await supabase.from('profiles').select('*').eq('id', u.user.id).maybeSingle();
+    const { data } = await api.from('profiles').select('*').eq('id', u.user.id).maybeSingle();
     setProfile((data as Profile) || null);
   }, []);
 
   const loadFor = useCallback(async (s: Session | null) => {
     setSession(s);
     if (!s) { setProfile(null); setSettings(null); setNeedsMfa(false); return; }
-    const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+    const { data: aal } = await api.auth.mfa.getAuthenticatorAssuranceLevel();
     setNeedsMfa(!!aal && aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2');
     await Promise.all([reloadProfile(), reloadSettings()]);
   }, [reloadProfile, reloadSettings]);
@@ -69,17 +68,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let alive = true;
     loadBranding();
-    supabase.auth.getSession().then(async ({ data }) => { await loadFor(data.session); if (alive) setReady(true); });
-    const { data: sub } = supabase.auth.onAuthStateChange((ev, s) => {
+    api.auth.getSession().then(async ({ data }) => { await loadFor(data.session); if (alive) setReady(true); });
+    const { data: sub } = api.auth.onAuthStateChange((ev, s) => {
       if (ev === 'SIGNED_IN' || ev === 'SIGNED_OUT' || ev === 'MFA_CHALLENGE_VERIFIED' || ev === 'USER_UPDATED') {
-        // defer: never await Supabase calls inside this callback
+        // defer: never await data calls inside this callback
         setTimeout(() => { loadFor(s); }, 0);
       } else if (ev === 'TOKEN_REFRESHED') setSession(s);
     });
     return () => { alive = false; sub.subscription.unsubscribe(); };
   }, [loadFor, loadBranding]);
 
-  const signOut = useCallback(async () => { await supabase.auth.signOut(); setProfile(null); setSession(null); }, []);
+  const signOut = useCallback(async () => { await api.auth.signOut(); setProfile(null); setSession(null); }, []);
 
   return <Ctx.Provider value={{ ready, session, profile, settings, branding, needsMfa, reloadProfile, reloadSettings, signOut }}>{children}</Ctx.Provider>;
 }

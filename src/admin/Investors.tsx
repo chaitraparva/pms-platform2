@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { supabase, rpc, must, fetchAll } from '../lib/supabase';
+import { api, rpc, must, fetchAll } from '../lib/api';
 import { useQuery, refreshAll } from '../lib/useQuery';
 import { useAuth, useSettings } from '../lib/auth';
-import { createUser, resendAccess } from '../lib/adminApi';
+import { createUser, resetUserPassword } from '../lib/adminApi';
 import { uploadDocument, openDocument, deleteDocument } from '../lib/docs';
 import { downloadCsv } from '../lib/csv';
 import { money, date, dateTime, initials, isUnlocked, lockinText, rate, today, LEDGER_TYPE } from '../lib/format';
@@ -29,7 +29,7 @@ const fmtBytes = (n: number) => (n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB'
 
 interface Row extends Profile { principal: number; unlocked: number; accrued: number; paid: number; next: string | null; branch: string }
 
-export const loadBranches = async () => must(await supabase.from('branches').select('*').order('name')) as Branch[];
+export const loadBranches = async () => must(await api.from('branches').select('*').order('name')) as Branch[];
 
 /* =============================== DIRECTORY =============================== */
 export function Investors() {
@@ -38,9 +38,9 @@ export function Investors() {
   const [adding, setAdding] = useState(sp.get('new') === '1');
   const q = useQuery(async () => {
     const [people, invs, bal, branches] = await Promise.all([
-      fetchAll<Profile>((a, b) => supabase.from('profiles').select('*').eq('role', 'investor').order('created_at', { ascending: false }).range(a, b)),
-      fetchAll<Pick<Investment, 'id' | 'investor_id' | 'principal' | 'status' | 'maturity_date' | 'lockin_end_date'>>((a, b) => supabase.from('investments').select('id,investor_id,principal,status,maturity_date,lockin_end_date').range(a, b)),
-      fetchAll<Balance>((a, b) => supabase.from('investment_balances').select('*').range(a, b)),
+      fetchAll<Profile>((a, b) => api.from('profiles').select('*').eq('role', 'investor').order('created_at', { ascending: false }).range(a, b)),
+      fetchAll<Pick<Investment, 'id' | 'investor_id' | 'principal' | 'status' | 'maturity_date' | 'lockin_end_date'>>((a, b) => api.from('investments').select('id,investor_id,principal,status,maturity_date,lockin_end_date').range(a, b)),
+      fetchAll<Balance>((a, b) => api.from('investment_balances').select('*').range(a, b)),
       loadBranches()
     ]);
     const bn = new Map(branches.map(b => [b.id, b.name]));
@@ -147,7 +147,7 @@ function AddInvestor({ onClose, onDone }: { onClose: () => void; onDone: (code: 
   const act = useAction();
   const bq = useQuery(loadBranches, []);
   const [branch, setBranch] = useState('');
-  const [mode, setMode] = useState<'invite' | 'password'>('invite');
+  const [mode, setMode] = useState<'invite' | 'password'>('password');
   const [f, setF] = useState({ full_name: '', email: '', phone: '', city: '', address: '', id_number: '', bank_name: '', bank_account: '', bank_ifsc: '', password: '' });
   const [tried, setTried] = useState(false);
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
@@ -175,7 +175,6 @@ function AddInvestor({ onClose, onDone }: { onClose: () => void; onDone: (code: 
         <div className="field">
           <label>How will they sign in?</label>
           <div className="chips">
-            <button type="button" className={'chip ' + (mode === 'invite' ? 'on' : '')} onClick={() => setMode('invite')}>Email invitation</button>
             <button type="button" className={'chip ' + (mode === 'password' ? 'on' : '')} onClick={() => setMode('password')}>Temporary password</button>
           </div>
           <p className="hint">{mode === 'invite'
@@ -221,23 +220,23 @@ interface DetailData {
 }
 
 async function loadDetail(code: string): Promise<DetailData | null> {
-  const p = must(await supabase.from('profiles').select('*').eq('code', code).maybeSingle()) as Profile | null;
+  const p = must(await api.from('profiles').select('*').eq('code', code).maybeSingle()) as Profile | null;
   if (!p || !(p as Profile).id) return null;
   const [invs, history, ledger, docs, branches] = await Promise.all([
-    fetchAll<Investment>((a, b) => supabase.from('investments').select('*').eq('investor_id', p.id).order('created_at', { ascending: false }).range(a, b)),
-    supabase.from('audit_logs').select('*').eq('entity_id', p.id).order('at', { ascending: false }).limit(30),
-    supabase.from('ledger_entries').select('*').eq('investor_id', p.id).order('occurred_on', { ascending: false }).order('created_at', { ascending: false }).limit(12),
-    supabase.from('documents').select('*').eq('owner_id', p.id).order('created_at', { ascending: false }),
+    fetchAll<Investment>((a, b) => api.from('investments').select('*').eq('investor_id', p.id).order('created_at', { ascending: false }).range(a, b)),
+    api.from('audit_logs').select('*').eq('entity_id', p.id).order('at', { ascending: false }).limit(30),
+    api.from('ledger_entries').select('*').eq('investor_id', p.id).order('occurred_on', { ascending: false }).order('created_at', { ascending: false }).limit(12),
+    api.from('documents').select('*').eq('owner_id', p.id).order('created_at', { ascending: false }),
     loadBranches()
   ]);
   const ids = invs.map(i => i.id);
-  const bal = ids.length ? must(await supabase.from('investment_balances').select('*').in('investment_id', ids)) as Balance[] : [];
+  const bal = ids.length ? must(await api.from('investment_balances').select('*').in('investment_id', ids)) as Balance[] : [];
   const invCode: Record<string, string> = {};
   invs.forEach(i => { invCode[i.id] = i.code; });
   return { p, invs, bal: new Map(bal.map(b => [b.investment_id, b])), history: must(history) as AuditLog[], ledger: must(ledger) as LedgerEntry[], docs: must(docs) as DocumentRow[], invCode, branches };
 }
 
-type Dialog = null | 'kyc-verified' | 'kyc-rejected' | 'status' | 'edit' | 'upload' | 'branch' | { del: DocumentRow };
+type Dialog = null | 'kyc-verified' | 'kyc-rejected' | 'status' | 'edit' | 'upload' | 'branch' | 'password' | { del: DocumentRow };
 
 export function InvestorDetail() {
   const { code = '' } = useParams();
@@ -265,7 +264,6 @@ export function InvestorDetail() {
   const next = live.filter(i => !isUnlocked(i)).map(i => i.lockin_end_date).filter((x): x is string => !!x).sort()[0] || null;
   const self = me?.id === p.id;
 
-  const resend = () => act.run(() => resendAccess(p.email), ['Access email sent', `${p.email} will receive a link to set a password.`]);
   const openDoc = (d: DocumentRow) => act.run(() => openDocument(d.storage_path));
 
   return (
@@ -276,7 +274,7 @@ export function InvestorDetail() {
           <KycBadge k={p.kyc_status} /> <AcctBadge s={p.account_status} />
           {p.role === 'super_admin' && <Badge cls="b-navy">Super Admin</Badge>}
           <button className="btn" onClick={() => setDlg('edit')}>Edit details</button>
-          <button className="btn" onClick={resend} disabled={act.busy}>Resend access email</button>
+          <button className="btn" onClick={() => setDlg('password')}>Reset password</button>
           <button className="btn" onClick={() => nav('/admin/announcements?to=' + p.id)}><Icon name="announce" />Send notice</button>
           {!self && <button className={'btn ' + (p.account_status === 'active' ? 'danger' : '')} onClick={() => setDlg('status')}>{p.account_status === 'active' ? 'Suspend account' : 'Reactivate account'}</button>}
           {p.role === 'investor' && <button className="btn accent" disabled={p.kyc_status !== 'verified' || p.account_status !== 'active'}
@@ -403,6 +401,7 @@ export function InvestorDetail() {
       {dlg === 'status' && <StatusDialog p={p} onClose={() => setDlg(null)} />}
       {dlg === 'branch' && <BranchDialog ids={[p.id]} label={p.full_name || p.email} current={p.branch_id} branches={branches} onClose={() => setDlg(null)} />}
       {dlg === 'edit' && <EditInvestor p={p} onClose={() => setDlg(null)} />}
+      {dlg === 'password' && <ResetPassword p={p} onClose={() => setDlg(null)} />}
       {dlg === 'upload' && <UploadDoc p={p} invs={invs} onClose={() => setDlg(null)} />}
       {dlg && typeof dlg === 'object' && <DeleteDoc d={dlg.del} onClose={() => setDlg(null)} />}
     </>
@@ -446,6 +445,26 @@ function StatusDialog({ p, onClose }: { p: Profile; onClose: () => void }) {
       foot={<><button className="btn ghost" onClick={onClose}>Cancel</button><button className={'btn ' + (nv === 'suspended' ? 'danger' : 'primary')} onClick={go} disabled={act.busy}>{nv === 'suspended' ? 'Suspend account' : 'Reactivate'}</button></>}>
       <Field label="Reason (required, saved to audit log)" err={tried && !reason.trim() ? 'Enter a reason.' : null}>
         <input className={'input ' + (tried && !reason.trim() ? 'bad' : '')} value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. KYC address mismatch" />
+      </Field>
+    </Modal>
+  );
+}
+
+function ResetPassword({ p, onClose }: { p: Profile; onClose: () => void }) {
+  const act = useAction();
+  const [pw, setPw] = useState('');
+  const [tried, setTried] = useState(false);
+  const bad = pw.length < 10 ? 'Use at least 10 characters.' : null;
+  const go = async () => {
+    setTried(true); if (bad) return;
+    const r = await act.run(() => resetUserPassword(p.id, pw), ['Password reset', `Share the new temporary password with ${p.full_name || p.email} securely.`]);
+    if (r) onClose();
+  };
+  return (
+    <Modal title={'Reset password for ' + (p.full_name || p.email)} sub="Sets a new temporary password. Their old password stops working straight away." onClose={onClose}
+      foot={<><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" onClick={go} disabled={act.busy}>Set password</button></>}>
+      <Field label="New temporary password *" err={tried ? bad : null} hint="At least 10 characters. Ask them to change it from Profile & Security after signing in.">
+        <input className={'input mono ' + (tried && bad ? 'bad' : '')} value={pw} onChange={e => setPw(e.target.value)} autoComplete="new-password" />
       </Field>
     </Modal>
   );

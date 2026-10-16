@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { supabase, rpc, must, fetchAll } from '../lib/supabase';
+import { api, rpc, must, fetchAll } from '../lib/api';
 import { useQuery } from '../lib/useQuery';
 import { useAuth, useSettings } from '../lib/auth';
 import { downloadCsv } from '../lib/csv';
@@ -27,13 +27,13 @@ async function loadOverview(approachingDays: number, branch: string, from: strin
   const t = today();
   const [dash, plansCount, branches, pend, kyc, maturing, ledger, recent] = await Promise.all([
     rpc<Dashboard>('admin_dashboard', { p_branch: branch || null, p_from: from + '-01', p_to: to >= t.slice(0, 7) ? t : monthEnd(to) }),
-    supabase.from('plans').select('id', { count: 'exact', head: true }),
-    supabase.from('branches').select('*').order('name'),
-    supabase.from('investments').select('id,code,investor_id,principal,created_at').eq('status', 'pending_funding').order('created_at').limit(50),
-    supabase.from('profiles').select('id,code,full_name,created_at').eq('role', 'investor').eq('kyc_status', 'pending').order('created_at').limit(50),
-    supabase.from('investments').select('*').eq('status', 'active').gte('maturity_date', t).lte('maturity_date', addDays(t, approachingDays)).order('maturity_date').limit(5),
-    supabase.from('ledger_entries').select('*').order('occurred_on', { ascending: false }).order('created_at', { ascending: false }).limit(6),
-    supabase.from('profiles').select('*').eq('role', 'investor').order('created_at', { ascending: false }).limit(5)
+    api.from('plans').select('id', { count: 'exact', head: true }),
+    api.from('branches').select('*').order('name'),
+    api.from('investments').select('id,code,investor_id,principal,created_at').eq('status', 'pending_funding').order('created_at').limit(50),
+    api.from('profiles').select('id,code,full_name,created_at').eq('role', 'investor').eq('kyc_status', 'pending').order('created_at').limit(50),
+    api.from('investments').select('*').eq('status', 'active').gte('maturity_date', t).lte('maturity_date', addDays(t, approachingDays)).order('maturity_date').limit(5),
+    api.from('ledger_entries').select('*').order('occurred_on', { ascending: false }).order('created_at', { ascending: false }).limit(6),
+    api.from('profiles').select('*').eq('role', 'investor').order('created_at', { ascending: false }).limit(5)
   ]);
   if (plansCount.error) throw new Error(plansCount.error.message);
   const branchList = must(branches) as Branch[];
@@ -46,8 +46,8 @@ async function loadOverview(approachingDays: number, branch: string, from: strin
   const pIds = [...new Set([...pendRows.map(r => r.investor_id), ...matRows.map(r => r.investor_id), ...ledRows.map(r => r.investor_id).filter((x): x is string => !!x)])];
   const iIds = [...new Set([...ledRows.map(r => r.investment_id).filter((x): x is string => !!x)])];
   const [people, invs] = await Promise.all([
-    pIds.length ? supabase.from('profiles').select('id,full_name,code').in('id', pIds) : Promise.resolve({ data: [], error: null }),
-    iIds.length ? supabase.from('investments').select('id,code').in('id', iIds) : Promise.resolve({ data: [], error: null })
+    pIds.length ? api.from('profiles').select('id,full_name,code').in('id', pIds) : Promise.resolve({ data: [], error: null }),
+    iIds.length ? api.from('investments').select('id,code').in('id', iIds) : Promise.resolve({ data: [], error: null })
   ]);
   const names: Record<string, Lite> = {};
   (must(people) as Lite[]).forEach(p => { names[p.id] = p; });
@@ -72,9 +72,9 @@ export function Overview() {
 
   const exportCsv = () => act.run(async () => {
     const [rows, bal, people] = await Promise.all([
-      fetchAll<Investment>((a, b) => supabase.from('investments').select('*').in('status', ['active', 'matured', 'redemption_requested', 'redemption_processing']).order('code').range(a, b)),
-      fetchAll<Balance>((a, b) => supabase.from('investment_balances').select('*').range(a, b)),
-      fetchAll<Lite>((a, b) => supabase.from('profiles').select('id,full_name,code').range(a, b))
+      fetchAll<Investment>((a, b) => api.from('investments').select('*').in('status', ['active', 'matured', 'redemption_requested', 'redemption_processing']).order('code').range(a, b)),
+      fetchAll<Balance>((a, b) => api.from('investment_balances').select('*').range(a, b)),
+      fetchAll<Lite>((a, b) => api.from('profiles').select('id,full_name,code').range(a, b))
     ]);
     const bm = new Map(bal.map(x => [x.investment_id, x]));
     const pm = new Map(people.map(x => [x.id, x]));

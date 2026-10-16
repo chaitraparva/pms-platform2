@@ -1,5 +1,5 @@
 import { ReactNode, useState } from 'react';
-import { supabase, rpc, fetchAll, must } from '../lib/supabase';
+import { api, rpc, fetchAll, must } from '../lib/api';
 import { useQuery } from '../lib/useQuery';
 import { useAuth } from '../lib/auth';
 import { money, today, addMonths, daysBetween, investmentLabel, isUnlocked, rateShort, LEDGER_TYPE } from '../lib/format';
@@ -17,13 +17,13 @@ const n2 = (v: number | string | null | undefined) => (v == null ? '' : Number(v
 const nameOf = (p?: { full_name: string; email: string }) => (p ? p.full_name || p.email : '');
 
 async function people() {
-  const ps = await fetchAll<Person>((a, b) => supabase.from('profiles').select('id, code, full_name, email, phone, city, kyc_status, account_status, created_at, role, bank_name, bank_account_masked, bank_ifsc, branch_id').range(a, b));
+  const ps = await fetchAll<Person>((a, b) => api.from('profiles').select('id, code, full_name, email, phone, city, kyc_status, account_status, created_at, role, bank_name, bank_account_masked, bank_ifsc, branch_id').range(a, b));
   return new Map(ps.map(p => [p.id, p]));
 }
-const branchNames = async () => new Map((must(await supabase.from('branches').select('*')) as Branch[]).map(b => [b.id, b.name]));
-const investments = () => fetchAll<Investment>((a, b) => supabase.from('investments').select('*').order('created_at').range(a, b));
+const branchNames = async () => new Map((must(await api.from('branches').select('*')) as Branch[]).map(b => [b.id, b.name]));
+const investments = () => fetchAll<Investment>((a, b) => api.from('investments').select('*').order('created_at').range(a, b));
 async function balances() {
-  const bs = await fetchAll<Balance>((a, b) => supabase.from('investment_balances').select('*').range(a, b));
+  const bs = await fetchAll<Balance>((a, b) => api.from('investment_balances').select('*').range(a, b));
   return new Map(bs.map(b => [b.investment_id, b]));
 }
 const outstanding = (b?: Balance) => (b ? Number(b.unapproved) + Number(b.approved) + Number(b.processing) : 0);
@@ -97,9 +97,9 @@ export function Reports() {
   const accrualRegister = async () => {
     needRange(accFrom, accTo);
     const [acc, invs, ppl, pays] = await Promise.all([
-      fetchAll<Accrual>((a, b) => supabase.from('accruals').select('*').gte('accrual_date', accFrom).lte('accrual_date', accTo).order('accrual_date').range(a, b)),
+      fetchAll<Accrual>((a, b) => api.from('accruals').select('*').gte('accrual_date', accFrom).lte('accrual_date', accTo).order('accrual_date').range(a, b)),
       investments(), people(),
-      fetchAll<Pick<Payout, 'accrual_id' | 'code' | 'status'>>((a, b) => supabase.from('payouts').select('accrual_id, code, status').range(a, b))
+      fetchAll<Pick<Payout, 'accrual_id' | 'code' | 'status'>>((a, b) => api.from('payouts').select('accrual_id, code, status').range(a, b))
     ]);
     const ib = new Map(invs.map(i => [i.id, i])), pb = new Map(pays.map(p => [p.accrual_id, p]));
     return csv(`accrual-register-${accFrom}-to-${accTo}`, ['Accrual date', 'Investment', 'Investor ID', 'Investor', 'Period', 'Kind', 'Period start', 'Period end', 'Days', 'Days in period', 'Amount', 'Payout', 'Payout status', 'Reason'],
@@ -110,7 +110,7 @@ export function Reports() {
   const payoutRegister = async () => {
     needRange(payFrom, payTo);
     const [pays, invs, ppl] = await Promise.all([
-      fetchAll<Payout>((a, b) => { let qq = supabase.from('payouts').select('*').gte('due_date', payFrom).lte('due_date', payTo); if (payStatus) qq = qq.eq('status', payStatus); return qq.order('due_date').range(a, b); }),
+      fetchAll<Payout>((a, b) => { let qq = api.from('payouts').select('*').gte('due_date', payFrom).lte('due_date', payTo); if (payStatus) qq = qq.eq('status', payStatus); return qq.order('due_date').range(a, b); }),
       investments(), people()
     ]);
     const ib = new Map(invs.map(i => [i.id, i]));
@@ -123,7 +123,7 @@ export function Reports() {
   const maturities = async () => {
     const until = new Date(Date.parse(t + 'T00:00:00Z') + matDays * 86400000).toISOString().slice(0, 10);
     const [invs, ppl] = await Promise.all([
-      fetchAll<Investment>((a, b) => supabase.from('investments').select('*').in('status', ['active', 'redemption_requested', 'redemption_processing']).gte('maturity_date', t).lte('maturity_date', until).order('maturity_date').range(a, b)),
+      fetchAll<Investment>((a, b) => api.from('investments').select('*').in('status', ['active', 'redemption_requested', 'redemption_processing']).gte('maturity_date', t).lte('maturity_date', until).order('maturity_date').range(a, b)),
       people()
     ]);
     return csv(`upcoming-unlocks-${matDays}d`, ['Lock-in ends', 'Days left', 'Investment', 'Investor ID', 'Investor', 'Email', 'Phone', 'Plan', 'Principal', 'Lock-in months', 'Status'],
@@ -142,8 +142,8 @@ export function Reports() {
 
   const planVersions = async () => {
     const [plans, vers, ppl] = await Promise.all([
-      supabase.from('plans').select('*').then(r => must(r) as Plan[]),
-      fetchAll<PlanVersion>((a, b) => supabase.from('plan_versions').select('*').order('created_at').range(a, b)), people()
+      api.from('plans').select('*').then(r => must(r) as Plan[]),
+      fetchAll<PlanVersion>((a, b) => api.from('plan_versions').select('*').order('created_at').range(a, b)), people()
     ]);
     const pb = new Map(plans.map(p => [p.id, p]));
     return csv('plan-versions', ['Plan code', 'Plan name', 'Plan status', 'Version', 'Current', 'Rate % / month', 'Min amount', 'Max amount', 'Lock-in options (months)', 'Custom lock-in', 'Eligible from', 'Eligible to',
@@ -156,7 +156,7 @@ export function Reports() {
   const ledger = async () => {
     needRange(ledFrom, ledTo);
     const [led, invs, ppl] = await Promise.all([
-      fetchAll<LedgerEntry>((a, b) => supabase.from('ledger_entries').select('*').gte('occurred_on', ledFrom).lte('occurred_on', ledTo).order('occurred_on').order('created_at').range(a, b)), investments(), people()
+      fetchAll<LedgerEntry>((a, b) => api.from('ledger_entries').select('*').gte('occurred_on', ledFrom).lte('occurred_on', ledTo).order('occurred_on').order('created_at').range(a, b)), investments(), people()
     ]);
     const ib = new Map(invs.map(i => [i.id, i]));
     return csv(`ledger-${ledFrom}-to-${ledTo}`, ['Transaction', 'Date', 'Type', 'Investment', 'Investor ID', 'Investor', 'Amount', 'Status', 'Reference', 'Note', 'Recorded at'],
@@ -165,7 +165,7 @@ export function Reports() {
 
   const audit = async () => {
     needRange(audFrom, audTo);
-    const logs = await fetchAll<AuditLog>((a, b) => supabase.from('audit_logs').select('*').gte('at', audFrom).lt('at', addDay(audTo)).order('at').range(a, b));
+    const logs = await fetchAll<AuditLog>((a, b) => api.from('audit_logs').select('*').gte('at', audFrom).lt('at', addDay(audTo)).order('at').range(a, b));
     return csv(`audit-${audFrom}-to-${audTo}`, ['ID', 'Time (UTC)', 'Actor', 'Action', 'Entity', 'Record', 'Reason', 'Before', 'After'],
       logs.map(l => [l.id, l.at, l.actor_name, l.action, l.entity_type, l.entity_label, l.reason, l.before == null ? '' : JSON.stringify(l.before), l.after == null ? '' : JSON.stringify(l.after)]));
   };

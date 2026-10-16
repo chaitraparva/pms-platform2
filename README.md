@@ -1,170 +1,30 @@
-# PMS Investment Platform
+# PMS Platform (browser-only)
 
-A Super Admin dashboard and an Investor portal for monthly simple-interest investment plans with 6- and 12-month lock-ins (or any lock-in you configure), built on **Supabase** (database, auth, storage, realtime, scheduled jobs) and hosted on **Vercel**.
+A Super Admin dashboard and an Investor portal for monthly simple-interest plans (2%, 3.3% and 6%) with 6- and 12-month lock-ins, Tumkur and Bangalore branches, brochures and Parva Realty properties.
 
-There is **no sample data**. After setup the database is empty: the Super Admin enters the company details, plans, rates, lock-ins, terms, investors and investments from the app.
+This version needs no backend, database service or keys. Everything runs in the browser:
 
----
+- All records (plans, investors, investments, returns, payouts, announcements, branches, settings) are saved in the browser's localStorage.
+- Uploaded files (brochures, documents, photos, logo) are saved in the same browser's IndexedDB, because localStorage is too small for files.
+- Each browser keeps its own copy of the data. Clearing site data starts again from the initial setup.
 
-## What's inside
+## Sign in
 
-```
-supabase/migrations/   5 SQL files: schema, business logic, security rules, storage/realtime/cron, branches/brochures/properties upgrade
-supabase/tests/        database tests (run on a local PostgreSQL, never on Supabase)
-supabase/maintenance/  one-off script to clear trial data before go-live
-api/admin/users.ts     Vercel server function that creates investor/admin logins (holds the service key)
-src/                   React app (Vite + TypeScript)
-  admin/               Super Admin pages
-  investor/            Investor portal pages
-  pages/               sign-in, set password, profile & 2FA, notifications
-  lib/ ui/ shell/      data access, formatting, design-system components, layout
-```
+Choose **Super Admin** or **Investor** on the sign-in page, then enter the email and password.
 
-How money is protected:
+| Role | Email | Password |
+|------|-------|----------|
+| Super Admin | chaitra@parvarealty.ae | Parva@2026 |
+| Investor (sample) | ananya.rao@example.com | Investor@2026 |
 
-- Every change that moves money (recording, activating, accruing, paying) is a database function that checks the caller is an active Super Admin, validates the input, locks the rows and writes the ledger and the audit log in one transaction. The browser cannot insert or update financial tables at all.
-- Row-level security: an investor can read only their own records; admins read everything.
-- The ledger, accruals, plan versions and audit log are append-only (enforced by triggers, even for the database owner). Mistakes are corrected with reversing entries.
-- An investment copies the plan's terms when it is recorded. Editing a plan creates a new version and never changes existing investments.
-- Optional four-eyes control: with two or more Super Admins, the person who records/sends something cannot also confirm it.
-- Accruals are idempotent: re-running the job never creates a second accrual for the same month.
+The Super Admin can add investors and other admins with a temporary password, and reset passwords from the investor's page.
 
----
-
-## 1. Set up Supabase (about 10 minutes)
-
-1. **Create a project** at supabase.com (your Pro plan is fine). Note the *Project URL*, *anon public key* and *service_role key* from **Project Settings → API**.
-2. **Enable pg_cron** (runs accruals every hour): **Database → Extensions → pg_cron → Enable**.
-3. **Run the migrations**, in order. Either:
-   - **SQL Editor:** open each file in `supabase/migrations/` in order (`…0001_schema.sql`, `…0002_logic.sql`, `…0003_security.sql`, `…0004_platform.sql`, `…0005_upgrade.sql`), paste, and click *Run*; or
-   - **Supabase CLI:** `npx supabase link --project-ref YOUR-REF` then `npx supabase db push`.
-
-   **Already running an earlier version?** Run only `20261016000005_upgrade.sql`. It keeps every existing investment, accrual, payout, ledger line and audit entry exactly as they are (including any old redemption records, which stay readable as history), and it is safe to run twice.
-
-   Check the scheduled job exists: `select jobname, schedule from cron.job;` should show `pms-accruals | 5 * * * *`. If it does not (pg_cron was not enabled first), enable pg_cron and run:
-   ```sql
-   select cron.schedule('pms-accruals', '5 * * * *', 'select public.pms_run_accruals()');
-   ```
-4. **Authentication → Sign In / Providers → Email:** turn **off "Allow new users to sign up"**. Only the Super Admin creates accounts. Keep "Confirm email" on.
-5. **Authentication → URL Configuration:**
-   - *Site URL:* your Vercel URL, e.g. `https://your-app.vercel.app`
-   - *Redirect URLs:* add `https://your-app.vercel.app/set-password` and `http://localhost:5173/set-password`
-6. **Authentication → Emails → SMTP Settings:** add your own SMTP (e.g. your company mail, Resend, SendGrid). Supabase's built-in mailer is heavily rate-limited and meant only for testing. Invitation and password-reset emails depend on this.
-7. **Authentication → Multi-Factor:** make sure *TOTP (App Authenticator)* is enabled (it is by default). Users turn on 2FA from *Profile & Security*.
-
-### Create the first Super Admin
-
-1. **Authentication → Users → Add user → Create new user:** your email and a strong password, tick *Auto Confirm User*.
-2. **SQL Editor**, run once:
-   ```sql
-   select public.bootstrap_super_admin('you@yourcompany.com');
-   ```
-   This works only while no Super Admin exists. Add further admins later from **Settings → Administrators** in the app.
-
----
-
-## 2. Deploy on Vercel
-
-1. Put this folder in a Git repository (GitHub/GitLab/Bitbucket) and **Import** it in Vercel, or run `npx vercel` from this folder.
-2. Framework preset: **Vite** (detected automatically from `vercel.json`). Build command `npm run build`, output `dist`.
-3. **Project Settings → Environment Variables** (Production and Preview):
-
-   | Name | Value | Notes |
-   |---|---|---|
-   | `VITE_SUPABASE_URL` | Project URL | used by the browser |
-   | `VITE_SUPABASE_ANON_KEY` | anon public key | used by the browser, safe to expose |
-   | `SUPABASE_URL` | Project URL | server function |
-   | `SUPABASE_SERVICE_ROLE_KEY` | service_role key | **server only, never prefix with `VITE_`** |
-   | `SITE_URL` | `https://your-app.vercel.app` | where invitation links land |
-
-4. Deploy, then put the final URL into Supabase *Site URL* / *Redirect URLs* (step 1.5) if it changed.
-
----
-
-## 3. First run (in the app)
-
-Sign in with the Super Admin account. The Overview shows a setup checklist until it is complete:
-
-1. **Settings → Company & branding:** company name, tagline, logo, brand colour, support contacts, legal footer.
-2. **Settings → Money & dates:** currency (INR, AED, USD…), locale, time zone, "unlocking soon" window, default payout lag.
-3. **Settings → Lock-in & controls:** lock-in options (default 6 and 12 months), custom lock-ins on/off, four-eyes on/off.
-4. **Settings → Terms:** default agreement terms and risk disclosure (used when a plan has none of its own).
-5. **Investment Plans → Add 2%, 3.3%, 6% plans** creates the three standard monthly plans, each offering 6-month and 1-year lock-ins, or use **New plan** for your own. Edit the amounts and terms afterwards; editing never changes existing investments. *Investments to review* lists any older investment whose rate or lock-in differs from the standard ones; they keep their agreed terms.
-5a. **Branches:** Tumkur and Bangalore are created by the upgrade. Assign each investor to a branch (Investors → select → *Assign branch*, or on the investor's page). Every change needs a reason and is audit-logged.
-6. **Investors → Add investor:** sends an invitation email (the investor chooses a password at `/set-password`) or sets a temporary password. Verify KYC on the investor's page before recording an investment.
-7. **Investments → Record investment:** investor, plan, lock-in, principal. It waits as *Pending funding* until you **Confirm deposit** with the bank reference and the date funds were received. That date is the start date; maturity = start + lock-in months.
-
-### Loading investments that already exist
-
-Record the investment and confirm the deposit with its **original start date** (a past date is allowed). The system immediately creates every monthly accrual that has already fallen due, each as an unpaid payout. Then on **Payouts**, approve → send → confirm paid with the bank reference for the months you have already paid.
-
----
-
-## 4. Day-to-day
-
-- **Accruals** are created automatically every hour for any investment whose monthly anniversary has passed (period *k* accrues on start date + *k* months, clamped to month end: 31 Jan → 28 Feb → 31 Mar…). *Monthly ROI & Accruals → Run now* does the same on demand.
-- **Payouts:** Due → **Approve** → **Send to bank** → **Confirm paid** (bank/UTR reference required) or **Mark failed** → re-approve. With four-eyes on, a different admin confirms what one admin sent.
-- **Lock-in and unlocked principal:** an investment is *locked* until its start date + 6 or 12 months, then *unlocked*. Unlocking only changes the status: no money is moved, paid out or reinvested automatically, and unlocked principal is never counted as returns. Redemption has been removed from the app; old redemption records remain in the ledger and audit log.
-- **Overview:** filter by branch and month range. Tumkur and Bangalore cards (investors, principal, locked, unlocked, 2% / 3.3% / 6% split, returns) open a branch page listing its investors and investment history; totals are checked against the investor rows. Every card and chart is clickable.
-- **Brochures:** upload a PDF or image (max 15 MB), preview, publish, unpublish or archive. Files sit in a private storage bucket and investors open them through short-lived signed links. After signing in an investor sees the newest brochure once; closing it is recorded so it does not come back (uploading a new file shows it again). Brochures also appear in *Latest announcements*.
-- **Parva Properties:** parvarealty.ae has no public listings feed, so the Super Admin enters each property (photo, name, location, price as published, official https link). Investors with unlocked principal see *Explore Properties with Parva Realty* prominently; if nothing is listed they get a link to the official website. Choose in the same page whether everyone or only investors with unlocked principal see it.
-- **Announcements:** to all investors, selected investors, everyone in a plan, or investors maturing within N days. Published announcements appear instantly in the investor's bell.
-- **Reports:** CSV exports of portfolio, investors, accruals, payouts, upcoming unlocks, branch summary, plan history and ledger. Investors can print a statement from *Statements & Documents*.
-- **Audit Logs:** every admin action with who, when, why, and before/after values.
-
----
-
-## 5. Local development
+## Run and deploy
 
 ```bash
 npm install
-cp .env.example .env.local      # fill in VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY
-npm run dev                     # http://localhost:5173
+npm run dev        # http://localhost:5173
+npm run build      # output in dist/
 ```
 
-`npm run dev` serves the React app only. Creating users needs the server function, so either run `npx vercel dev` (reads the same env vars) or create users on the deployed site.
-
-Checks:
-
-```bash
-npm run typecheck   # TypeScript
-npm test            # unit tests for date maths, rounding, labels, CSV
-npm run build       # production build
-
-# Database tests on a throwaway LOCAL PostgreSQL 15+ (never point this at Supabase):
-PGHOST=localhost PGPORT=5432 PGUSER=postgres ./supabase/tests/run_local.sh
-```
-
----
-
-## 6. What has been tested, and what to check on your project
-
-**Tested before delivery**
-
-- All four migrations apply cleanly on PostgreSQL 16 (with small stand-ins for Supabase's `auth` and `storage` schemas).
-- 108 database checks pass (`supabase/tests/10_logic_test.sql` and `20_upgrade_test.sql`). The upgrade adds checks for: Tumkur/Bangalore branches; 3.3% maths (1,00,000 → 3,300); only Super Admins can use the new functions; audit-logged branch changes; standard plans with 6/12-month lock-ins; branch totals adding up to the portfolio total; investors counted by contracted rate; older off-standard investments flagged but unchanged; unlocking at the lock-in end date with no money moved; redemption requests no longer possible; brochure audience by branch, acknowledgement, re-showing after a new file, archiving; https-only property links and investors seeing only published properties. Upgrade path: a database with the old version and real redemption history was upgraded and every ledger, accrual, payout, redemption, investment and audit row was unchanged. The original checks include: fresh database has no data; signup metadata cannot make someone an admin; bootstrap works once; 2%, 4% and 6% monthly returns; 6- and 12-month maturities with month-end clamping (31 Aug 2027 + 6 = 29 Feb 2028); backdated start catches up 8 months; re-running accruals creates nothing; a plan change keeps existing terms; KYC, plan status, min/max and lock-in validation; four-eyes on payments; a payment cannot be marked paid without a reference; investors cannot see each other's data or the audit log; investors cannot call admin functions or write tables; ledger, accruals and audit log cannot be edited or deleted; announcement audience and read receipts.
-- TypeScript compiles in strict mode, the production build succeeds, and unit tests pass.
-- A browser walk-through of the built app against a local copy of the database (PostgREST plus a stand-in for Supabase Auth): sign in as Super Admin, fill company settings and terms, create and activate a plan, add an investor through the `/api/admin/users` function, verify KYC, record an investment, confirm the deposit with a backdated start (two past months accrued automatically), approve, send and confirm the payouts, publish an announcement; then sign in as the investor and open every portal page, see the returns and the announcement, . All admin and investor pages load with no errors, the investor is redirected away from admin pages, and the portal fits a phone screen. The server function also refused a non-admin caller, a missing token and a duplicate email.
-- Browser test of this upgrade (local data only): all 19 admin pages load without errors; the overview, branch filter, branch cards, branch pages, ROI donut and unlocked/locked links open the right filtered lists; a PDF brochure was uploaded, previewed and published; an http property link was refused and an https one published; an investor saw the brochure once after sign-in and not on the next sign-in, saw it under announcements, and the four cards opened the right lists; Explore Properties was featured for an investor with unlocked principal and not for one whose principal is all locked; an investor opening /admin was sent back to the portal.
-
-**Needs your Supabase project to verify** (cannot be reproduced offline)
-
-- Invitation and password-reset emails (depend on your SMTP settings and redirect URLs).
-- Two-factor enrolment and sign-in challenge.
-- The hourly pg_cron job (check `select * from cron.job_run_details order by start_time desc limit 5;` after an hour).
-- Realtime bell updates (falls back to refreshing every 60 seconds).
-- Storage uploads/downloads for documents, the logo, brochures and property photos, including the private brochure bucket's access rules (the local test used a stand-in for Supabase Storage).
-- PDF display inside the brochure pop-up (the test browser has no PDF viewer; the file and its link were checked, not the rendering).
-- The Vercel `/api/admin/users` function with your service key.
-
-A good first check after deploying: create a test plan and a test investor, record an investment with a start date two months ago, confirm the deposit, and check that two accruals appear and the investor sees them in the portal. Financial records cannot be edited or deleted from the app by design, so do these trial runs before go-live and then clear them with `supabase/maintenance/wipe_test_data_before_go_live.sql` (keeps users and settings, deletes everything else), or use a separate Supabase project for testing.
-
----
-
-## Security notes
-
-- The service-role key lives only in Vercel's server environment. The browser uses the anon key and is limited by row-level security and function grants.
-- Roles are stored in `profiles.role` and only changed by a Super Admin (or the one-time bootstrap); user-editable metadata is ignored.
-- Public sign-up must be disabled (step 1.4).
-- Turn on 2FA for every Super Admin account.
-- Vercel adds security headers (`vercel.json`): no framing, no MIME sniffing, strict referrer policy.
+On Vercel, import the repository with the Vite preset. No environment variables are needed.

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { supabase, must } from '../lib/supabase';
+import { api, must } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useQuery } from '../lib/useQuery';
 import { openDocument } from '../lib/docs';
@@ -143,7 +143,7 @@ export function InvestmentDetail() {
   const q = useQuery(async () => {
     const p = await loadPortfolio(profile!.id);
     const i = p.investments.find(x => x.code === code);
-    const docs = i ? must(await supabase.from('documents').select('*').eq('investment_id', i.id).order('created_at', { ascending: false })) as DocumentRow[] : [];
+    const docs = i ? must(await api.from('documents').select('*').eq('investment_id', i.id).order('created_at', { ascending: false })) as DocumentRow[] : [];
     return { p, i, docs };
   }, [profile?.id, code]);
 

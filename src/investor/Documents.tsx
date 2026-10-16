@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { supabase, must } from '../lib/supabase';
+import { api, must } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useQuery } from '../lib/useQuery';
 import { openDocument } from '../lib/docs';
@@ -28,7 +28,7 @@ export function Documents() {
   const q = useQuery(async () => {
     const [inv, docs] = await Promise.all([
       loadInvestments(profile!.id),
-      supabase.from('documents').select('*').eq('owner_id', profile!.id).eq('visible_to_investor', true).order('created_at', { ascending: false })
+      api.from('documents').select('*').eq('owner_id', profile!.id).eq('visible_to_investor', true).order('created_at', { ascending: false })
     ]);
     return { codes: codeMap(inv), docs: must(docs) as DocumentRow[] };
   }, [profile?.id]);

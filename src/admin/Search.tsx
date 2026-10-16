@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { supabase, must } from '../lib/supabase';
+import { api, must } from '../lib/api';
 import { useQuery } from '../lib/useQuery';
 import { useSettings } from '../lib/auth';
 import { money, date, initials, LEDGER_TYPE } from '../lib/format';
@@ -21,10 +21,10 @@ async function runSearch(raw: string) {
   if (!q) return null;
   const like = `%${q}%`;
   const [people, invs, ledger] = await Promise.all([
-    supabase.from('profiles').select('*').eq('role', 'investor')
+    api.from('profiles').select('*').eq('role', 'investor')
       .or(`full_name.ilike.${like},email.ilike.${like},code.ilike.${like},phone.ilike.${like}`).order('full_name').limit(LIMIT),
-    supabase.from('investments').select('*').or(`code.ilike.${like},agreement_ref.ilike.${like},deposit_ref.ilike.${like}`).order('created_at', { ascending: false }).limit(LIMIT),
-    supabase.from('ledger_entries').select('*').or(`code.ilike.${like},reference.ilike.${like}`).order('occurred_on', { ascending: false }).limit(LIMIT)
+    api.from('investments').select('*').or(`code.ilike.${like},agreement_ref.ilike.${like},deposit_ref.ilike.${like}`).order('created_at', { ascending: false }).limit(LIMIT),
+    api.from('ledger_entries').select('*').or(`code.ilike.${like},reference.ilike.${like}`).order('occurred_on', { ascending: false }).limit(LIMIT)
   ]);
   const P = must(people) as Profile[];
   const I = must(invs) as Investment[];
@@ -33,8 +33,8 @@ async function runSearch(raw: string) {
   const pIds = [...new Set([...I.map(i => i.investor_id), ...L.map(l => l.investor_id)].filter((x): x is string => !!x))];
   const iIds = [...new Set([...L.map(l => l.investment_id)].filter((x): x is string => !!x))];
   const [pp, ii] = await Promise.all([
-    pIds.length ? supabase.from('profiles').select('id,full_name,code,email').in('id', pIds) : null,
-    iIds.length ? supabase.from('investments').select('id,code').in('id', iIds) : null
+    pIds.length ? api.from('profiles').select('id,full_name,code,email').in('id', pIds) : null,
+    iIds.length ? api.from('investments').select('id,code').in('id', iIds) : null
   ]);
   const names: Record<string, Lite> = {};
   if (pp) (must(pp) as Lite[]).forEach(p => { names[p.id] = p; });

@@ -2,7 +2,7 @@
 // closes them (acknowledged in the database), and listed under Latest announcements.
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { rpc } from '../lib/supabase';
+import { rpc } from '../lib/api';
 import { refreshAll, useQuery } from '../lib/useQuery';
 import { brochureUrl, openBrochure } from '../lib/docs';
 import { date } from '../lib/format';

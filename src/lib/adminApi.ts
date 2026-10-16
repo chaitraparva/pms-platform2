@@ -1,10 +1,11 @@
-import { supabase } from './supabase';
+import { friendly } from './api';
+import { adminResetPassword, createAccount, ready } from './localdb';
 
 export interface NewUser {
   email: string;
   full_name: string;
   role: 'investor' | 'super_admin';
-  /** invite: emails a link to choose a password. password: sets a temporary password now. */
+  /** password: the administrator sets a temporary password now and shares it with the person. */
   mode: 'invite' | 'password';
   password?: string;
   phone?: string;
@@ -16,23 +17,14 @@ export interface NewUser {
   bank_ifsc?: string;
 }
 
-/** Creates a login through the server function (it holds the service key, never the browser). */
+/** Creates a login with a temporary password (stored on this device, never shown again). */
 export async function createUser(u: NewUser): Promise<{ id: string; code: string }> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  if (!token) throw new Error('Your session has expired. Please sign in again.');
-  const res = await fetch('/api/admin/users', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-    body: JSON.stringify(u)
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error || `Could not create the user (HTTP ${res.status}).`);
-  return body as { id: string; code: string };
+  await ready();
+  try { return await createAccount({ ...u }); } catch (e) { throw new Error(friendly((e as Error).message)); }
 }
 
-/** Re-sends an invitation or password-reset email to an existing user. */
-export async function resendAccess(email: string): Promise<void> {
-  const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin + '/set-password' });
-  if (error) throw new Error(error.message);
+/** Sets a new temporary password for an existing user. */
+export async function resetUserPassword(userId: string, password: string): Promise<boolean> {
+  await ready();
+  try { await adminResetPassword(userId, password); return true; } catch (e) { throw new Error(friendly((e as Error).message)); }
 }

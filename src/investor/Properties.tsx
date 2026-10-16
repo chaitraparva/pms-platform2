@@ -1,6 +1,6 @@
 // "Explore Properties with Parva Realty": the catalog the Super Admin maintains
 // with links to the official website. Nothing here moves or reinvests money.
-import { supabase, must } from '../lib/supabase';
+import { api, must } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useQuery } from '../lib/useQuery';
 import { money } from '../lib/format';
@@ -11,7 +11,7 @@ import { isUnlocked } from '../lib/format';
 import { isLive, loadInvestments } from './data';
 
 export const loadProperties = async () =>
-  must(await supabase.from('properties').select('*').eq('status', 'published').order('sort_order').order('created_at', { ascending: false })) as Property[];
+  must(await api.from('properties').select('*').eq('status', 'published').order('sort_order').order('created_at', { ascending: false })) as Property[];
 
 const host = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return u; } };
 

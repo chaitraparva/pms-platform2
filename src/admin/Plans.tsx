@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { supabase, rpc, must, fetchAll } from '../lib/supabase';
+import { api, rpc, must, fetchAll } from '../lib/api';
 import { useQuery, refreshAll } from '../lib/useQuery';
 import { useSettings } from '../lib/auth';
 import { money, moneyShort, date, dateShort, dateTime, lockinText, rate, rateShort, today, monthlyReturn } from '../lib/format';
@@ -22,9 +22,9 @@ interface ListData { plans: Plan[]; versions: PlanVersion[]; invs: InvLite[] }
 
 async function loadPlans(): Promise<ListData> {
   const [plans, versions, invs] = await Promise.all([
-    fetchAll<Plan>((a, b) => supabase.from('plans').select('*').order('created_at').range(a, b)),
-    fetchAll<PlanVersion>((a, b) => supabase.from('plan_versions').select('*').order('version').range(a, b)),
-    fetchAll<InvLite>((a, b) => supabase.from('investments').select('id,plan_id,principal,status').range(a, b))
+    fetchAll<Plan>((a, b) => api.from('plans').select('*').order('created_at').range(a, b)),
+    fetchAll<PlanVersion>((a, b) => api.from('plan_versions').select('*').order('version').range(a, b)),
+    fetchAll<InvLite>((a, b) => api.from('investments').select('id,plan_id,principal,status').range(a, b))
   ]);
   return { plans, versions, invs };
 }
@@ -202,7 +202,7 @@ function PlanForm({ plan, cur, onClose, onSaved }: { plan?: Plan; cur?: PlanVers
         ['Plan created as draft', 'Activate it when you are ready to record investments on it.']);
       if (id) {
         refreshAll();
-        const { data } = await supabase.from('plans').select('code').eq('id', id).maybeSingle();
+        const { data } = await api.from('plans').select('code').eq('id', id).maybeSingle();
         onSaved((data as { code: string } | null)?.code || '');
       }
     }
@@ -278,17 +278,17 @@ function PlanForm({ plan, cur, onClose, onSaved }: { plan?: Plan; cur?: PlanVers
 interface DetailData { plan: Plan; versions: PlanVersion[]; invs: Investment[]; names: Record<string, string> }
 
 async function loadPlan(code: string): Promise<DetailData | null> {
-  const plan = must(await supabase.from('plans').select('*').eq('code', code).maybeSingle()) as Plan | null;
+  const plan = must(await api.from('plans').select('*').eq('code', code).maybeSingle()) as Plan | null;
   if (!plan || !plan.id) return null;
   const [versions, invs] = await Promise.all([
-    fetchAll<PlanVersion>((a, b) => supabase.from('plan_versions').select('*').eq('plan_id', plan.id).order('version', { ascending: false }).range(a, b)),
-    fetchAll<Investment>((a, b) => supabase.from('investments').select('*').eq('plan_id', plan.id).order('created_at', { ascending: false }).range(a, b))
+    fetchAll<PlanVersion>((a, b) => api.from('plan_versions').select('*').eq('plan_id', plan.id).order('version', { ascending: false }).range(a, b)),
+    fetchAll<Investment>((a, b) => api.from('investments').select('*').eq('plan_id', plan.id).order('created_at', { ascending: false }).range(a, b))
   ]);
   const created = (plan as Plan & { created_by?: string | null; updated_by?: string | null });
   const ids = [...new Set([...invs.map(i => i.investor_id), ...versions.map(v => v.created_by), created.created_by, created.updated_by].filter((x): x is string => !!x))];
   const names: Record<string, string> = {};
   for (let i = 0; i < ids.length; i += 200) {
-    const rows = must(await supabase.from('profiles').select('id,full_name,email,code').in('id', ids.slice(i, i + 200))) as Pick<Profile, 'id' | 'full_name' | 'email' | 'code'>[];
+    const rows = must(await api.from('profiles').select('id,full_name,email,code').in('id', ids.slice(i, i + 200))) as Pick<Profile, 'id' | 'full_name' | 'email' | 'code'>[];
     rows.forEach(r => { names[r.id] = r.full_name || r.email; });
   }
   return { plan, versions, invs, names };

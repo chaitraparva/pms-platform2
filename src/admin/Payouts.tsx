@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { supabase, rpc, fetchAll } from '../lib/supabase';
+import { api, rpc, fetchAll } from '../lib/api';
 import { useQuery, refreshAll } from '../lib/useQuery';
 import { useAuth } from '../lib/auth';
 import { money, date, today } from '../lib/format';
@@ -24,10 +24,10 @@ const nameOf = (p?: Person) => (p ? p.full_name || p.email : '—');
 
 async function load() {
   const [pays, invs, people, accs, dash] = await Promise.all([
-    fetchAll<Payout>((a, b) => supabase.from('payouts').select('*').order('due_date', { ascending: false }).range(a, b)),
-    fetchAll<Inv>((a, b) => supabase.from('investments').select('id, code, plan_name').range(a, b)),
-    fetchAll<Person>((a, b) => supabase.from('profiles').select('id, code, full_name, email, bank_name, bank_account_masked, bank_ifsc').range(a, b)),
-    fetchAll<AccLite>((a, b) => supabase.from('accruals').select('id, period_no, kind').neq('kind', 'reversal').range(a, b)),
+    fetchAll<Payout>((a, b) => api.from('payouts').select('*').order('due_date', { ascending: false }).range(a, b)),
+    fetchAll<Inv>((a, b) => api.from('investments').select('id, code, plan_name').range(a, b)),
+    fetchAll<Person>((a, b) => api.from('profiles').select('id, code, full_name, email, bank_name, bank_account_masked, bank_ifsc').range(a, b)),
+    fetchAll<AccLite>((a, b) => api.from('accruals').select('id, period_no, kind').neq('kind', 'reversal').range(a, b)),
     rpc<Dashboard>('admin_dashboard')
   ]);
   const invBy = new Map(invs.map(i => [i.id, i]));

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { supabase, rpc, fetchAll, must } from '../lib/supabase';
+import { api, rpc, fetchAll, must } from '../lib/api';
 import { useQuery, refreshAll } from '../lib/useQuery';
 import { useAuth } from '../lib/auth';
 import { date, dateTime } from '../lib/format';
@@ -21,9 +21,9 @@ const blank = (): Draft => ({ id: null, title: '', category: CATEGORIES[0], body
 
 async function load() {
   const [anns, people, plans] = await Promise.all([
-    fetchAll<Announcement>((a, b) => supabase.from('announcements').select('*').order('created_at', { ascending: false }).range(a, b)),
-    fetchAll<Person>((a, b) => supabase.from('profiles').select('id, code, full_name, email, account_status').eq('role', 'investor').order('full_name').range(a, b)),
-    supabase.from('plans').select('id, code, name, status').order('name').then(r => must(r) as PlanLite[])
+    fetchAll<Announcement>((a, b) => api.from('announcements').select('*').order('created_at', { ascending: false }).range(a, b)),
+    fetchAll<Person>((a, b) => api.from('profiles').select('id, code, full_name, email, account_status').eq('role', 'investor').order('full_name').range(a, b)),
+    api.from('plans').select('id, code, name, status').order('name').then(r => must(r) as PlanLite[])
   ]);
   return { anns, people, plans };
 }

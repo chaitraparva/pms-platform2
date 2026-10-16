@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { supabase, rpc, fetchAll } from '../lib/supabase';
+import { api, rpc, fetchAll } from '../lib/api';
 import { useQuery, refreshAll } from '../lib/useQuery';
 import { money, moneyShort, date, dateShort, today } from '../lib/format';
 import { downloadCsv } from '../lib/csv';
@@ -25,10 +25,10 @@ const nameOf = (p?: Person) => (p ? p.full_name || p.email : '—');
 
 async function load() {
   const [acc, pays, invs, people, dash] = await Promise.all([
-    fetchAll<Accrual>((a, b) => supabase.from('accruals').select('*').order('accrual_date', { ascending: false }).order('created_at', { ascending: false }).range(a, b)),
-    fetchAll<PayLite>((a, b) => supabase.from('payouts').select('id, code, accrual_id, status').range(a, b)),
-    fetchAll<Inv>((a, b) => supabase.from('investments').select('id, code, investor_id, principal, monthly_rate, monthly_return, status, start_date').range(a, b)),
-    fetchAll<Person>((a, b) => supabase.from('profiles').select('id, code, full_name, email').range(a, b)),
+    fetchAll<Accrual>((a, b) => api.from('accruals').select('*').order('accrual_date', { ascending: false }).order('created_at', { ascending: false }).range(a, b)),
+    fetchAll<PayLite>((a, b) => api.from('payouts').select('id, code, accrual_id, status').range(a, b)),
+    fetchAll<Inv>((a, b) => api.from('investments').select('id, code, investor_id, principal, monthly_rate, monthly_return, status, start_date').range(a, b)),
+    fetchAll<Person>((a, b) => api.from('profiles').select('id, code, full_name, email').range(a, b)),
     rpc<Dashboard>('admin_dashboard')
   ]);
   const invBy = new Map(invs.map(i => [i.id, i]));

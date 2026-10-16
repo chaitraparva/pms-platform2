@@ -1,6 +1,6 @@
 import { Route, Routes, useNavigate } from 'react-router-dom';
 import { Shell, NavItem } from '../shell/Shell';
-import { supabase } from '../lib/supabase';
+import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useQuery } from '../lib/useQuery';
 import { ProfileSecurity } from '../pages/ProfileSecurity';
@@ -20,7 +20,7 @@ export default function PortalApp() {
   const nav = useNavigate();
   const { profile } = useAuth();
   const counts = useQuery(async () => {
-    const base = () => supabase.from('notifications').select('id', { count: 'exact', head: true }).eq('user_id', profile!.id).is('read_at', null);
+    const base = () => api.from('notifications').select('id', { count: 'exact', head: true }).eq('user_id', profile!.id).is('read_at', null);
     const [all, ann] = await Promise.all([base(), base().in('kind', ['announcement', 'brochure'])]);
     return { notifications: all.count || 0, announcements: ann.count || 0 };
   }, [profile?.id]);

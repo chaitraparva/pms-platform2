@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { supabase, rpc, must, fetchAll } from '../lib/supabase';
+import { api, rpc, must, fetchAll } from '../lib/api';
 import { useQuery, refreshAll } from '../lib/useQuery';
 import { useAuth, useSettings } from '../lib/auth';
 import { createUser } from '../lib/adminApi';
@@ -241,7 +241,7 @@ function Admins() {
   const { profile: me } = useAuth();
   const [dlg, setDlg] = useState<null | 'add' | 'promote' | { demote: Lite }>(null);
   const q = useQuery(async () => {
-    const admins = must(await supabase.from('profiles').select('id,full_name,email,code,account_status,created_at,role,kyc_status').eq('role', 'super_admin').order('created_at')) as Lite[];
+    const admins = must(await api.from('profiles').select('id,full_name,email,code,account_status,created_at,role,kyc_status').eq('role', 'super_admin').order('created_at')) as Lite[];
     return admins;
   }, []);
   return (
@@ -274,7 +274,7 @@ function Admins() {
 
 function AddAdmin({ onClose }: { onClose: () => void }) {
   const act = useAction();
-  const [mode, setMode] = useState<'invite' | 'password'>('invite');
+  const [mode, setMode] = useState<'invite' | 'password'>('password');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [pw, setPw] = useState('');
@@ -293,22 +293,21 @@ function AddAdmin({ onClose }: { onClose: () => void }) {
         <div className="field">
           <label>How will they sign in?</label>
           <div className="chips">
-            <button type="button" className={'chip ' + (mode === 'invite' ? 'on' : '')} onClick={() => setMode('invite')}>Email invitation</button>
             <button type="button" className={'chip ' + (mode === 'password' ? 'on' : '')} onClick={() => setMode('password')}>Temporary password</button>
           </div>
-          <p className="hint">{mode === 'invite' ? 'We email a secure link to choose a password.' : 'You set a password now and share it securely. They should change it and turn on two-factor after signing in.'}</p>
+          <p className="hint">{mode === 'invite' ? 'We email a secure link to choose a password.' : 'You set a password now and share it securely. They should change it from Profile & Security after signing in.'}</p>
         </div>
         <Field label="Full name *" err={tried ? errs.name : null}><input className="input" value={name} onChange={e => setName(e.target.value)} /></Field>
         <Field label="Email *" err={tried ? errs.email : null}><input className="input" type="email" value={email} onChange={e => setEmail(e.target.value)} /></Field>
         {mode === 'password' && <Field label="Temporary password *" err={tried ? errs.pw : null} hint="At least 10 characters."><input className="input mono" value={pw} onChange={e => setPw(e.target.value)} autoComplete="new-password" /></Field>}
-        <div className="note">Administrators can move money: record and activate investments and confirm payouts. Ask them to turn on two-factor authentication.</div>
+        <div className="note">Administrators can move money: record and activate investments and confirm payouts. Ask them to change their temporary password after signing in.</div>
       </div>
     </Drawer>
   );
 }
 
 function Promote({ onClose }: { onClose: () => void }) {
-  const q = useQuery(() => fetchAll<Lite>((a, b) => supabase.from('profiles').select('id,full_name,email,code,account_status,created_at,role,kyc_status').eq('role', 'investor').eq('account_status', 'active').order('full_name').range(a, b)), []);
+  const q = useQuery(() => fetchAll<Lite>((a, b) => api.from('profiles').select('id,full_name,email,code,account_status,created_at,role,kyc_status').eq('role', 'investor').eq('account_status', 'active').order('full_name').range(a, b)), []);
   const [id, setId] = useState('');
   const who = q.data?.find(x => x.id === id);
   if (who) return <RoleDialog who={who} to="super_admin" onClose={onClose} />;
@@ -355,7 +354,7 @@ function AccrualJob() {
   const act = useAction();
   const [last, setLast] = useState<{ as_of: string; created: number } | null>(null);
   const q = useQuery(async () => {
-    const rows = must(await supabase.from('audit_logs').select('*').eq('action', 'job.accrual.run').order('at', { ascending: false }).limit(1)) as AuditLog[];
+    const rows = must(await api.from('audit_logs').select('*').eq('action', 'job.accrual.run').order('at', { ascending: false }).limit(1)) as AuditLog[];
     return rows[0] || null;
   }, []);
   const run = async () => {

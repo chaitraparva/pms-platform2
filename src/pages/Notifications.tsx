@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { supabase, must, rpc } from '../lib/supabase';
+import { api, must, rpc } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { refreshAll, useQuery } from '../lib/useQuery';
 import { dateTime } from '../lib/format';
@@ -9,7 +9,7 @@ import type { Notification } from '../lib/types';
 export function Notifications() {
   const { profile } = useAuth();
   const nav = useNavigate();
-  const q = useQuery(async () => must(await supabase.from('notifications').select('*').eq('user_id', profile!.id).order('created_at', { ascending: false }).limit(300)) as Notification[], [profile?.id]);
+  const q = useQuery(async () => must(await api.from('notifications').select('*').eq('user_id', profile!.id).order('created_at', { ascending: false }).limit(300)) as Notification[], [profile?.id]);
   const unread = (q.data || []).filter(n => !n.read_at).length;
   const markAll = async () => { await rpc('mark_notifications_read', { p_ids: null }); refreshAll(); };
   const open = async (n: Notification) => { if (!n.read_at) await rpc('mark_notifications_read', { p_ids: [n.id] }); refreshAll(); if (n.link) nav(n.link); };

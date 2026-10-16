@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { supabase, rpc, must, fetchAll } from '../lib/supabase';
+import { api, rpc, must, fetchAll } from '../lib/api';
 import { useQuery, refreshAll } from '../lib/useQuery';
 import { useAuth, useSettings } from '../lib/auth';
 import { uploadDocument, openDocument, deleteDocument } from '../lib/docs';
@@ -25,7 +25,7 @@ async function namesFor(ids: (string | null | undefined)[]): Promise<Record<stri
   const list = [...new Set(ids.filter((x): x is string => !!x))];
   const out: Record<string, Lite> = {};
   for (let i = 0; i < list.length; i += 200) {
-    const rows = must(await supabase.from('profiles').select('id,full_name,code,email').in('id', list.slice(i, i + 200))) as Lite[];
+    const rows = must(await api.from('profiles').select('id,full_name,code,email').in('id', list.slice(i, i + 200))) as Lite[];
     rows.forEach(r => { out[r.id] = r; });
   }
   return out;
@@ -47,10 +47,10 @@ export function Investments() {
 
   const q = useQuery(async () => {
     const [invs, bal, people, branches] = await Promise.all([
-      fetchAll<Investment>((a, b) => supabase.from('investments').select('*').order('created_at', { ascending: false }).range(a, b)),
-      fetchAll<Balance>((a, b) => supabase.from('investment_balances').select('*').range(a, b)),
-      fetchAll<Lite>((a, b) => supabase.from('profiles').select('id,full_name,code,email,branch_id').range(a, b)),
-      supabase.from('branches').select('*').order('name').then(r => must(r) as Branch[])
+      fetchAll<Investment>((a, b) => api.from('investments').select('*').order('created_at', { ascending: false }).range(a, b)),
+      fetchAll<Balance>((a, b) => api.from('investment_balances').select('*').range(a, b)),
+      fetchAll<Lite>((a, b) => api.from('profiles').select('id,full_name,code,email,branch_id').range(a, b)),
+      api.from('branches').select('*').order('name').then(r => must(r) as Branch[])
     ]);
     const bm = new Map(bal.map(x => [x.investment_id, x]));
     const pm = new Map(people.map(x => [x.id, x]));
@@ -136,11 +136,11 @@ function RecordInvestment({ preInvestor, onClose, onDone }: { preInvestor: strin
   const t = today();
   const opts = useQuery(async () => {
     const [people, plans] = await Promise.all([
-      fetchAll<Lite>((a, b) => supabase.from('profiles').select('id,full_name,code,email').eq('role', 'investor').eq('kyc_status', 'verified').eq('account_status', 'active').order('full_name').range(a, b)),
-      supabase.from('plans').select('*').eq('status', 'active').order('name')
+      fetchAll<Lite>((a, b) => api.from('profiles').select('id,full_name,code,email').eq('role', 'investor').eq('kyc_status', 'verified').eq('account_status', 'active').order('full_name').range(a, b)),
+      api.from('plans').select('*').eq('status', 'active').order('name')
     ]);
     const pl = must(plans) as Plan[];
-    const versions = pl.length ? must(await supabase.from('plan_versions').select('*').in('plan_id', pl.map(p => p.id)).order('version', { ascending: false })) as PlanVersion[] : [];
+    const versions = pl.length ? must(await api.from('plan_versions').select('*').in('plan_id', pl.map(p => p.id)).order('version', { ascending: false })) as PlanVersion[] : [];
     return { people, plans: pl, versions };
   }, []);
 
@@ -197,7 +197,7 @@ function RecordInvestment({ preInvestor, onClose, onDone }: { preInvestor: strin
     }), ['Investment recorded', 'Pending funding. Confirm the deposit to activate it.']);
     if (id) {
       refreshAll();
-      const { data } = await supabase.from('investments').select('code').eq('id', id).maybeSingle();
+      const { data } = await api.from('investments').select('code').eq('id', id).maybeSingle();
       onDone((data as { code: string } | null)?.code || '');
     }
   };
@@ -281,15 +281,15 @@ interface DetailData {
 }
 
 async function loadInvestment(code: string): Promise<DetailData | null> {
-  const i = must(await supabase.from('investments').select('*').eq('code', code).maybeSingle()) as Investment | null;
+  const i = must(await api.from('investments').select('*').eq('code', code).maybeSingle()) as Investment | null;
   if (!i || !i.id) return null;
   const [bal, accruals, payouts, ledger, amend, plan] = await Promise.all([
-    supabase.from('investment_balances').select('*').eq('investment_id', i.id).maybeSingle(),
-    fetchAll<Accrual>((a, b) => supabase.from('accruals').select('*').eq('investment_id', i.id).order('period_no').order('created_at').range(a, b)),
-    fetchAll<Payout>((a, b) => supabase.from('payouts').select('*').eq('investment_id', i.id).order('due_date').range(a, b)),
-    fetchAll<LedgerEntry>((a, b) => supabase.from('ledger_entries').select('*').eq('investment_id', i.id).order('occurred_on', { ascending: false }).order('created_at', { ascending: false }).range(a, b)),
-    supabase.from('contract_amendments').select('*').eq('investment_id', i.id).order('created_at', { ascending: false }),
-    supabase.from('plans').select('*').eq('id', i.plan_id).maybeSingle()
+    api.from('investment_balances').select('*').eq('investment_id', i.id).maybeSingle(),
+    fetchAll<Accrual>((a, b) => api.from('accruals').select('*').eq('investment_id', i.id).order('period_no').order('created_at').range(a, b)),
+    fetchAll<Payout>((a, b) => api.from('payouts').select('*').eq('investment_id', i.id).order('due_date').range(a, b)),
+    fetchAll<LedgerEntry>((a, b) => api.from('ledger_entries').select('*').eq('investment_id', i.id).order('occurred_on', { ascending: false }).order('created_at', { ascending: false }).range(a, b)),
+    api.from('contract_amendments').select('*').eq('investment_id', i.id).order('created_at', { ascending: false }),
+    api.from('plans').select('*').eq('id', i.plan_id).maybeSingle()
   ]);
   const amendments = must(amend) as Amendment[];
   const names = await namesFor([i.investor_id, i.created_by, i.activated_by, ...amendments.flatMap(a => [a.requested_by, a.approved_by])]);

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { supabase, fetchAll } from '../lib/supabase';
+import { api, fetchAll } from '../lib/api';
 import { useQuery } from '../lib/useQuery';
 import { money, date, today, LEDGER_TYPE } from '../lib/format';
 import { downloadCsv } from '../lib/csv';
@@ -22,9 +22,9 @@ const nameOf = (p?: Person) => (p ? p.full_name || p.email : '');
 
 async function load() {
   const [led, invs, people] = await Promise.all([
-    fetchAll<LedgerEntry & { created_by: string | null }>((a, b) => supabase.from('ledger_entries').select('*').order('occurred_on', { ascending: false }).order('created_at', { ascending: false }).range(a, b)),
-    fetchAll<Inv>((a, b) => supabase.from('investments').select('id, code').range(a, b)),
-    fetchAll<Person>((a, b) => supabase.from('profiles').select('id, code, full_name, email').range(a, b))
+    fetchAll<LedgerEntry & { created_by: string | null }>((a, b) => api.from('ledger_entries').select('*').order('occurred_on', { ascending: false }).order('created_at', { ascending: false }).range(a, b)),
+    fetchAll<Inv>((a, b) => api.from('investments').select('id, code').range(a, b)),
+    fetchAll<Person>((a, b) => api.from('profiles').select('id, code, full_name, email').range(a, b))
   ]);
   const invBy = new Map(invs.map(i => [i.id, i]));
   const pplBy = new Map(people.map(p => [p.id, p]));

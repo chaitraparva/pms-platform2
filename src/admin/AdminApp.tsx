@@ -1,6 +1,6 @@
 import { Route, Routes, useNavigate } from 'react-router-dom';
 import { Shell, NavItem } from '../shell/Shell';
-import { supabase } from '../lib/supabase';
+import { api } from '../lib/api';
 import { useQuery } from '../lib/useQuery';
 import { ProfileSecurity } from '../pages/ProfileSecurity';
 import { Notifications } from '../pages/Notifications';
@@ -23,7 +23,7 @@ import { Search } from './Search';
 export default function AdminApp() {
   const nav = useNavigate();
   const counts = useQuery(async () => {
-    const p = await supabase.from('payouts').select('id', { count: 'exact', head: true }).in('status', ['approved', 'processing', 'failed']);
+    const p = await api.from('payouts').select('id', { count: 'exact', head: true }).in('status', ['approved', 'processing', 'failed']);
     return { payouts: p.count || 0 };
   }, []);
   const items: NavItem[] = [
