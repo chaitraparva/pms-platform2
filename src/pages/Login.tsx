@@ -3,13 +3,17 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import { api, friendly } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { Logo } from '../shell/Shell';
+import { ADMIN_EMAIL, ADMIN_PASSWORD, INVESTOR_EMAIL, INVESTOR_PASSWORD } from '../lib/localdb';
+
+/** Sign-in details filled in when a role is chosen. */
+const DEMO = { super_admin: [ADMIN_EMAIL, ADMIN_PASSWORD], investor: [INVESTOR_EMAIL, INVESTOR_PASSWORD] } as const;
 
 export function Login() {
   const { session, profile, branding, needsMfa, ready } = useAuth();
   const nav = useNavigate();
   const [mode, setMode] = useState<'signin' | 'reset' | 'mfa'>('signin');
-  const [email, setEmail] = useState('');
-  const [pw, setPw] = useState('');
+  const [email, setEmail] = useState<string>(DEMO.super_admin[0]);
+  const [pw, setPw] = useState<string>(DEMO.super_admin[1]);
   const [code, setCode] = useState('');
   const [as, setAs] = useState<'super_admin' | 'investor'>('super_admin');
   const [busy, setBusy] = useState(false);
@@ -71,7 +75,7 @@ export function Login() {
             <div><h2>Sign in</h2><p className="hint" style={{ fontSize: 13.5, marginTop: 4 }}>Choose who you are, then use the email your administrator registered for you.</p></div>
             <div className="role-pick" role="radiogroup" aria-label="I am a">
               {(['super_admin', 'investor'] as const).map(r => (
-                <button key={r} type="button" role="radio" aria-checked={as === r} className={'role ' + (as === r ? 'on' : '')} onClick={() => { setAs(r); setMsg(null); }}>
+                <button key={r} type="button" role="radio" aria-checked={as === r} className={'role ' + (as === r ? 'on' : '')} onClick={() => { setAs(r); setEmail(DEMO[r][0]); setPw(DEMO[r][1]); setMsg(null); }}>
                   <b>{r === 'super_admin' ? 'Super Admin' : 'Investor'}</b><span>{r === 'super_admin' ? 'Plans, investors, payouts and settings' : 'Your investments, returns and statements'}</span>
                 </button>
               ))}
