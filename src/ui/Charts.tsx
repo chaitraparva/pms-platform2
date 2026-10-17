@@ -78,3 +78,37 @@ export function Donut({ parts, fmt, center1, center2, label, onPart }: { parts: 
 
 export const CHART_COLORS = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--violet)', 'var(--green)', 'var(--amber)'];
 export const monthLabel = (ym: string) => MONTHS[+ym.slice(5, 7) - 1] + (ym.slice(5, 7) === '01' ? ' ' + ym.slice(2, 4) : '');
+
+/** Line chart over time; a series can be filled (area) or dashed (a reference line such as principal). */
+export function LineChart({ labels, series, fmt, tipFmt, w = 640, h = 240, label }: { labels: string[]; series: (Series & { area?: boolean; dashed?: boolean })[]; fmt: (v: number) => string; tipFmt?: (v: number) => string; w?: number; h?: number; label: string }) {
+  const [hover, setHover] = useState<number | null>(null);
+  const L = 56, B = 26, T = 12, R = 12;
+  const max = niceMax(Math.max(1, ...series.flatMap(s => s.values)));
+  const iw = w - L - R, ih = h - T - B, n = Math.max(1, labels.length - 1);
+  const x = (i: number) => L + (iw * i) / n;
+  const y = (v: number) => T + ih - (v / max) * ih;
+  const every = Math.max(1, Math.ceil(labels.length / 8));
+  return (
+    <div className="chart">
+      <svg viewBox={`0 0 ${w} ${h}`} role="img" aria-label={label} onMouseLeave={() => setHover(null)}
+        onMouseMove={e => { const r = (e.currentTarget as SVGSVGElement).getBoundingClientRect(); const px = ((e.clientX - r.left) / r.width) * w; setHover(Math.min(labels.length - 1, Math.max(0, Math.round(((px - L) / iw) * n)))); }}>
+        {[0, 1, 2, 3, 4].map(i => { const v = (max * i) / 4; return <g key={i}><line className="gl" x1={L} x2={w - R} y1={y(v)} y2={y(v)} /><text x={L - 8} y={y(v) + 4} textAnchor="end">{fmt(v)}</text></g>; })}
+        {series.map(s => {
+          const pts = s.values.map((v, i) => `${x(i)},${y(v)}`).join(' ');
+          return <g key={s.name}>
+            {s.area && <polygon points={`${x(0)},${y(0)} ${pts} ${x(s.values.length - 1)},${y(0)}`} fill={s.color} opacity={0.14} />}
+            <polyline points={pts} fill="none" stroke={s.color} strokeWidth={s.dashed ? 1.5 : 2.5} strokeDasharray={s.dashed ? '5 4' : undefined} strokeLinejoin="round" />
+          </g>;
+        })}
+        {labels.map((lb, i) => (i % every === 0 || i === labels.length - 1) && <text key={i} x={x(i)} y={h - 8} textAnchor="middle">{lb}</text>)}
+        {hover != null && <g>
+          <line x1={x(hover)} x2={x(hover)} y1={T} y2={T + ih} stroke="var(--line-strong)" />
+          {series.map(s => <circle key={s.name} cx={x(hover)} cy={y(s.values[hover] || 0)} r={4} fill={s.color} stroke="var(--surface)" strokeWidth={2} />)}
+        </g>}
+      </svg>
+      {hover != null && <div className="ctip" style={{ display: 'block', position: 'absolute', left: `${(x(hover) / w) * 100}%`, top: 0, transform: hover > labels.length / 2 ? 'translateX(-105%)' : 'translateX(8px)' }}>
+        <b>{labels[hover]}</b>{series.map(s => <div key={s.name}>{s.name}: {(tipFmt || fmt)(s.values[hover] || 0)}</div>)}
+      </div>}
+    </div>
+  );
+}

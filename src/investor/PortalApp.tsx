@@ -26,12 +26,10 @@ export default function PortalApp() {
   }, [profile?.id]);
   const items: NavItem[] = [
     { group: 'Portfolio' }, { to: '/portal', label: 'Overview', icon: 'home' }, { to: '/portal/investments', label: 'My Investments', icon: 'invest' },
-    { to: '/portal/returns', label: 'Monthly Returns', icon: 'roi' }, { to: '/portal/lock-in', label: 'Lock-in & Maturity', icon: 'lock' },
+    { to: '/portal/returns', label: 'ROI Released', icon: 'roi' },
     { to: '/portal/properties', label: 'Explore Properties', icon: 'building' },
-    { group: 'Money' }, { to: '/portal/transactions', label: 'Transactions', icon: 'txn' },
-    { to: '/portal/documents', label: 'Statements & Documents', icon: 'doc' },
-    { group: 'Updates' }, { to: '/portal/announcements', label: 'Announcements', icon: 'announce', count: counts.data?.announcements },
-    { to: '/portal/notifications', label: 'Notifications', icon: 'bell', count: counts.data?.notifications },
+    { to: '/portal/announcements', label: 'Announcements', icon: 'announce', count: counts.data?.announcements },
+    { to: '/portal/documents', label: 'Documents', icon: 'doc' },
     { group: 'Account' }, { to: '/portal/profile', label: 'Profile & Security', icon: 'user' }
   ];
   return (

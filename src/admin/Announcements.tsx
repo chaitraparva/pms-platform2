@@ -167,10 +167,9 @@ function Composer({ initial, people, plans, onClose }: { initial: Draft; people:
         <Field label="Title" err={err.title}>
           <input className={'input' + (err.title ? ' bad' : '')} value={d.title} readOnly={ro} onChange={e => { set({ title: e.target.value }); setErr({ ...err, title: undefined }); }} maxLength={160} />
         </Field>
-        <Field label="Category">
-          <select className="input" value={d.category} disabled={ro} onChange={e => set({ category: e.target.value })}>
-            {(CATEGORIES.includes(d.category) ? CATEGORIES : [d.category, ...CATEGORIES]).map(c => <option key={c}>{c}</option>)}
-          </select>
+        <Field label="Category" hint="Type anything, or pick a suggestion.">
+          <input className="input" list="ann-categories" value={d.category} readOnly={ro} maxLength={60} placeholder="General notice" onChange={e => set({ category: e.target.value })} />
+          <datalist id="ann-categories">{CATEGORIES.map(c => <option key={c} value={c} />)}</datalist>
         </Field>
         <Field label="Message" err={err.body}>
           <textarea className={'input' + (err.body ? ' bad' : '')} rows={7} value={d.body} readOnly={ro} onChange={e => { set({ body: e.target.value }); setErr({ ...err, body: undefined }); }} />

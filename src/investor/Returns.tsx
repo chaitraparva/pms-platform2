@@ -7,6 +7,7 @@ import { Badge, Empty, ErrorNote, Kpi, Loading, PageHead, PayBadge } from '../ui
 import { DataTable } from '../ui/DataTable';
 import { BarChart, Donut, monthLabel } from '../ui/Charts';
 import { Icon } from '../ui/Icon';
+import { RoiReleased } from './Overview';
 import type { Accrual, Payout } from '../lib/types';
 import { bal, codeMap, isLive, lastMonths, loadPortfolio, projectedRemaining, unpaid } from './data';
 
@@ -17,8 +18,8 @@ export function Returns() {
   const nav = useNavigate();
   const q = useQuery(() => loadPortfolio(profile!.id), [profile?.id]);
 
-  if (q.loading && !q.data) return <><PageHead crumbs={['Monthly Returns']} title="Monthly returns" /><Loading /></>;
-  if (q.error || !q.data) return <><PageHead crumbs={['Monthly Returns']} title="Monthly returns" /><ErrorNote msg={q.error || 'Could not load your returns.'} retry={q.reload} /></>;
+  if (q.loading && !q.data) return <><PageHead crumbs={['ROI Released']} title="ROI released" /><Loading /></>;
+  if (q.error || !q.data) return <><PageHead crumbs={['ROI Released']} title="ROI released" /><ErrorNote msg={q.error || 'Could not load your returns.'} retry={q.reload} /></>;
 
   const p = q.data;
   const inv = p.investments;
@@ -39,12 +40,13 @@ export function Returns() {
 
   return (
     <>
-      <PageHead crumbs={['Monthly Returns']} title="Monthly returns" sub="Simple interest: each month's return is your original principal × your contract rate. Returns are never added to principal."
+      <PageHead crumbs={['ROI Released']} title="ROI released" sub="Simple interest: each month's return is your original principal × your contract rate. Returns are never added to principal."
         actions={rows.length ? <button className="btn" onClick={exportCsv}><Icon name="download" />Export CSV</button> : undefined} />
       {!inv.length ? (
         <div className="card"><div className="card-b"><Empty title="You have no investments yet">Your advisor will record your investment once funds are received. Monthly returns will be listed here.</Empty></div></div>
       ) : (
         <>
+          <RoiReleased p={q.data} inv={inv} principal={inv.filter(isLive).reduce((s, i) => s + Number(i.principal), 0)} />
           <div className="kpis">
             <Kpi label="Accrued" value={money(sumB('unapproved'))} sub="Earned, not yet approved" tip="Returns recorded for completed months, waiting for approval." />
             <Kpi label="Approved" value={money(sumB('approved'))} sub="Scheduled for payment" tip="Approved for payment but not yet sent to the bank." />
