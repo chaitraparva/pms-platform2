@@ -18,7 +18,8 @@ const P: Record<string, string> = {
   back: 'M15 6l-6 6 6 6',
   check: 'M5 12l5 5L20 7',
   print: 'M7 9V3h10v6M7 17H4v-7h16v7h-3M7 14h10v7H7z',
-  refresh: 'M20 11a8 8 0 10-2.3 5.7M20 4v7h-7'
+  refresh: 'M20 11a8 8 0 10-2.3 5.7M20 4v7h-7',
+  rank: 'M8 4h8v5a4 4 0 01-8 0zM8 6H5a3 3 0 003 4M16 6h3a3 3 0 01-3 4M12 13v4M8 20h8M9.5 17h5'
 };
 const EXTRA: Record<string, JSX.Element> = {
   users: <><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20c.8-3.5 3.4-5.5 6.5-5.5s5.7 2 6.5 5.5M16 4.5a3.5 3.5 0 010 7M18 14.5c2 .6 3.2 2.5 3.5 5.5" /></>,

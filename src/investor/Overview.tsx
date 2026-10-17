@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { api, must } from '../lib/api';
+import { api, must, rpc } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useQuery } from '../lib/useQuery';
 import { date, dateShort, isUnlocked, lockinText, money, moneyShort, rate, today } from '../lib/format';
@@ -11,20 +11,21 @@ import type { Announcement, Investment } from '../lib/types';
 import { bal, isLive, lastMonths, loadPortfolio, nextAccrual, type Portfolio } from './data';
 import { Tracker } from './parts';
 import { loadMyBrochures } from './Brochures';
-import { loadProperties, PropertyGrid } from './Properties';
+import { loadProperties, ParvaBanner, PropertyGrid } from './Properties';
 
 export function Overview() {
   const { profile, settings } = useAuth();
   const nav = useNavigate();
   const id = profile!.id;
   const q = useQuery(async () => {
-    const [p, ann, bros, props] = await Promise.all([
+    const [p, ann, bros, props, myRank] = await Promise.all([
       loadPortfolio(id),
       api.from('announcements').select('id,code,title,category,published_at').eq('status', 'published').order('published_at', { ascending: false }).limit(4),
       loadMyBrochures(),
-      loadProperties()
+      loadProperties(),
+      rpc<MyRank | null>('my_rank').catch(() => null)
     ]);
-    return { p, anns: must(ann) as Pick<Announcement, 'id' | 'code' | 'title' | 'category' | 'published_at'>[], bros, props };
+    return { p, myRank, anns: must(ann) as Pick<Announcement, 'id' | 'code' | 'title' | 'category' | 'published_at'>[], bros, props };
   }, [id]);
 
   const first = (profile!.full_name || '').trim().split(/\s+/)[0] || 'there';
@@ -33,7 +34,7 @@ export function Overview() {
   if (q.loading && !q.data) return <><PageHead crumbs={['Overview']} title={`Welcome back, ${first}`} /><Loading /></>;
   if (q.error || !q.data) return <><PageHead crumbs={['Overview']} title={`Welcome back, ${first}`} /><ErrorNote msg={q.error || 'Could not load your portfolio.'} retry={q.reload} /></>;
 
-  const { p, anns, bros, props } = q.data;
+  const { p, myRank, anns, bros, props } = q.data;
   const inv = p.investments;
   const live = inv.filter(isLive);
   const principal = live.reduce((s, i) => s + Number(i.principal), 0);
@@ -69,17 +70,19 @@ export function Overview() {
       ) : (
         <>
           <div className="kpis k4">
-            <Kpi label="Total principal invested" value={money(principal)} sub={`${live.length} live investment${live.length === 1 ? '' : 's'} · view details`} onClick={() => nav('/portal/investments')}
+            <Kpi label="Total principal invested" value={moneyShort(principal)} sub={`${live.length} live investment${live.length === 1 ? '' : 's'} · view details`} onClick={() => nav('/portal/investments')}
               tip="The amount you invested in investments that are live today. It does not include returns." />
-            <Kpi label="Unlocked principal" value={money(unlocked)} cls={unlocked ? 'pos' : ''} sub={`${unlockedInv.length} investment${unlockedInv.length === 1 ? '' : 's'} past lock-in`} onClick={() => nav('/portal/investments?view=unlocked')}
+            <Kpi label="Unlocked principal" value={moneyShort(unlocked)} cls={unlocked ? 'pos' : ''} sub={`${unlockedInv.length} investment${unlockedInv.length === 1 ? '' : 's'} past lock-in`} onClick={() => nav('/portal/investments?view=unlocked')}
               tip="Principal of investments whose lock-in period has ended. It is a status only: it is not a return and is not paid out or reinvested automatically." />
-            <Kpi label="Locked principal" value={money(locked)} sub={nextMat ? `Next unlocks ${date(nextMat.lockin_end_date)}` : 'Nothing in lock-in'} onClick={() => nav('/portal/investments?view=locked')}
+            <Kpi label="Locked principal" value={moneyShort(locked)} sub={nextMat ? `Next unlocks ${date(nextMat.lockin_end_date)}` : 'Nothing in lock-in'} onClick={() => nav('/portal/investments?view=locked')}
               tip="Principal of investments still inside their 6-month or 1-year lock-in." />
-            <Kpi label="Total returns" value={money(totalReturns)} sub={`${money(paid)} received`} onClick={() => nav('/portal/returns')}
+            <Kpi label="Total returns" value={moneyShort(totalReturns)} sub={`${moneyShort(paid)} received`} onClick={() => nav('/portal/returns')}
               tip="All monthly returns earned so far (accrued), whether paid or not. Open to see every month." />
           </div>
 
-          <RoiReleased p={p} inv={inv} principal={principal} />
+          <ParvaBanner items={props} siteUrl={siteUrl} unlocked={unlocked} />
+
+          <RoiReleased p={p} inv={inv} principal={principal} rank={myRank} />
 
           <div className="grid g-1-1-1">
             <div className="card">
@@ -128,12 +131,10 @@ export function Overview() {
                       <div className="hint">{rate(i.monthly_rate)} · {lockinText(i.lockin_months)} lock-in</div>
                     </div>
                     <Tracker i={i} compact />
-                    <dl className="kv">
-                      <dt>Monthly return</dt><dd>{money(i.monthly_return)}</dd>
-                      <dt>Accrued</dt><dd>{money(b.accrued)}</dd>
-                      <dt>Received</dt><dd className="pos">{money(b.paid)}</dd>
-                      <dt>Next accrual</dt><dd>{n ? <>{date(n.date)} <span className="muted">· scheduled</span></> : '—'}</dd>
-                    </dl>
+                    <div className="mini-roi" title={`${money(b.paid)} received of ${money(b.accrued)} earned`}>
+                      <div className="mini-bar"><i style={{ width: (Number(b.accrued) ? Math.min(100, (Number(b.paid) / Number(b.accrued)) * 100) : 0) + '%' }} /></div>
+                      <span><b className="pos">{moneyShort(b.paid)}</b> received · {money(i.monthly_return)}/month{n ? ' · next ' + dateShort(n.date) : ''}</span>
+                    </div>
                   </div>
                 </div>
               );
@@ -185,10 +186,12 @@ export function Overview() {
 
 const PLAN_COLORS = ['var(--chart-3)', 'var(--chart-2)', 'var(--chart-1)', 'var(--violet)'];
 
+interface MyRank { rank: number; total: number; multiple: number; branch: string | null; branch_rank: number; branch_total: number }
+
 type Range = '6m' | '1y' | 'all';
 
 /** How much return has been released against what was invested, month by month. */
-export function RoiReleased({ p, inv, principal }: { p: Portfolio; inv: Investment[]; principal: number }) {
+export function RoiReleased({ p, inv, principal, rank }: { p: Portfolio; inv: Investment[]; principal: number; rank?: MyRank | null }) {
   const [range, setRange] = useState<Range>('all');
   const t = today();
   const starts = inv.map(i => i.start_date).filter((x): x is string => !!x).sort();
@@ -210,6 +213,7 @@ export function RoiReleased({ p, inv, principal }: { p: Portfolio; inv: Investme
   return (
     <div className="card roi-card">
       <div className="card-h"><h3>Your ROI released</h3>
+        {rank && <span className="rank-pill" title="Your position among all investors, by ROI released compared with principal"><Icon name="rank" />Rank {rank.rank} of {rank.total} · {rank.multiple >= 1 ? rank.multiple.toFixed(1) + '×' : Math.round(rank.multiple * 100) + '%'}{rank.branch ? ` · #${rank.branch_rank} of ${rank.branch_total} in ${rank.branch}` : ''}</span>}
         <div className="r chips" role="group" aria-label="Time range">
           {(['6m', '1y', 'all'] as Range[]).map(r => <button key={r} type="button" className={'chip ' + (range === r ? 'on' : '')} onClick={() => setRange(r)}>{r === '6m' ? '6 months' : r === '1y' ? '1 year' : 'Since you started'}</button>)}
         </div>

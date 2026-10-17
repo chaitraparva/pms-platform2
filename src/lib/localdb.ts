@@ -367,11 +367,38 @@ function dashboard(branch: string | null, pFrom: string | null, pTo: string | nu
   };
 }
 
+
+/* ---------- investor ranking: ROI released compared with principal ---------- */
+function ranking(branch: string | null, period: string | null = null) {
+  const from = period === '6m' ? addMonths(today(), -6) : period === '1y' ? addMonths(today(), -12) : null;
+  const rows: Row[] = T('profiles').filter(p => p.role === 'investor' && p.account_status === 'active').map(p => {
+    const live = T('investments').filter(i => i.investor_id === p.id && LIVE.includes(i.status));
+    const principal = round2(live.reduce((s, i) => s + Number(i.principal), 0));
+    const released = round2(T('payouts').filter(x => x.investor_id === p.id && x.status === 'paid' && (!from || (x.paid_on || '') >= from)).reduce((s, x) => s + Number(x.amount), 0));
+    const since = live.map(i => i.start_date).filter(Boolean).sort()[0] || null;
+    const plans = [...new Set(live.map(i => Number(i.monthly_rate)))].sort((x, y) => x - y).map(r => r + '%').join(', ');
+    return { id: p.id, code: p.code, name: p.full_name || p.email, email: p.email, branch_id: p.branch_id, branch: T('branches').find(b => b.id === p.branch_id)?.name ?? null, principal, released, plans,
+      multiple: principal ? Math.round((released / principal) * 1000) / 1000 : 0, since, rank: 0, branch_rank: 0 };
+  }).filter(r => r.principal > 0)
+    .sort((a, b) => b.multiple - a.multiple || b.released - a.released || a.name.localeCompare(b.name));
+  rows.forEach((r, k) => { r.rank = k + 1; });
+  const perBranch = new Map<string, number>();
+  rows.forEach(r => { const k = r.branch_id || '-'; perBranch.set(k, (perBranch.get(k) || 0) + 1); r.branch_rank = perBranch.get(k)!; r.branch_total = 0; });
+  rows.forEach(r => { r.branch_total = perBranch.get(r.branch_id || '-'); });
+  return { total: rows.length, rows: branch ? rows.filter(r => r.branch_id === branch) : rows };
+}
+
 /* ---------- database functions (rpc) ---------- */
 export function rpcCall(fn: string, a: Row): unknown {
   const touched = (...t: string[]) => persist(...t, 'audit_logs');
   switch (fn) {
     case 'public_branding': { const s = settings(); return { company_name: s.company_name, tagline: s.tagline, logo_url: s.logo_url, primary_color: s.primary_color, support_email: s.support_email, legal_footer: s.legal_footer }; }
+    case 'admin_investor_ranking': requireAdmin(); return ranking(a.p_branch || null, a.p_period || null);
+    case 'my_rank': {
+      // an investor only learns their own position, never anyone else's name or amounts
+      const u = currentUid; if (!u) return null; const r = ranking(null); const me2 = r.rows.find(x => x.id === u);
+      return me2 ? { rank: me2.rank, total: r.total, multiple: me2.multiple, branch: me2.branch, branch_rank: me2.branch_rank, branch_total: me2.branch_total } : null;
+    }
     case 'admin_dashboard': runAllAccruals(); return dashboard(a.p_branch || null, a.p_from || null, a.p_to || null);
     case 'admin_save_settings': {
       requireAdmin(); const p = a.p || {}; const s = settings(); const before = { ...s };
@@ -679,6 +706,21 @@ async function seed(): Promise<Store> {
 
 /* ---------- the property catalogue published on parvarealty.ae (October 2026) ---------- */
 const PARVA_URL = 'https://www.parvarealty.ae/#properties';
+// photos as shown in each property's details on parvarealty.ae
+const PARVA_IMG: Record<string, string> = {
+  'Mercedes-Benz Places': 'https://www.parvarealty.ae/assets/image-1-CXaW41xx.png',
+  'Portofino Felicita': 'https://www.parvarealty.ae/assets/image-43-B4Mm8xRT.png',
+  'SAMANA South Haven': 'https://www.parvarealty.ae/assets/image-7-BUDqZRZd.png',
+  'Sunset Bay Grand': 'https://www.parvarealty.ae/assets/image-16-B8QVYKbA.png',
+  'The Symphony': 'https://www.parvarealty.ae/assets/image-20-BZPMbuKe.png',
+  'Auresta Tower': 'https://www.parvarealty.ae/assets/image-11-Diy888YD.png',
+  'Tiger Sky Tower': 'https://www.parvarealty.ae/assets/image-28-DU1kaeTK.png',
+  'Serenz': 'https://www.parvarealty.ae/assets/image-31-B0ydBebC.png',
+  'Bianca': 'https://www.parvarealty.ae/assets/image-37-Dcl805qL.png',
+  'Enre Residence': 'https://www.parvarealty.ae/assets/image-47-YM830T3P.png',
+  'TIMEZ': 'https://www.parvarealty.ae/assets/image-54-BruEDsDt.png',
+  'Greenz': 'https://www.parvarealty.ae/assets/image-59-C68cVji4.png',
+};
 // [title, location, developer, type, size, handover, price, rental yield, capital growth, summary]
 const PARVA: [string, string, string, string, string, string, string, string, string, string][] = [
   ['Mercedes-Benz Places', 'Downtown Dubai', 'Binghatti Developers', 'Branded Luxury Residences', '1,500 – 4,000 sq ft', 'Q4 2027', '₹13.03 Cr+ (AED 5M+)', '6.8%', '14.2%', 'The only Mercedes-Benz co-branded residential tower in the world, with Burj Khalifa views.'],
@@ -698,7 +740,7 @@ function parvaProperties(by: string | null): Row[] {
   return PARVA.map(([title, location, dev, type, size, handover, price, yld, cap, about], k) => ({
     id: uuid(), title, location, property_type: type, price_text: price,
     description: `${about} By ${dev} · ${size} · handover ${handover} · ${yld} rental yield, ${cap} capital growth (as listed by Parva Realty).`,
-    image_url: null, url: PARVA_URL, status: 'published', sort_order: k + 1, created_by: by, created_at: nowIso(), updated_at: nowIso()
+    image_url: PARVA_IMG[title] || null, url: PARVA_URL, status: 'published', sort_order: k + 1, created_by: by, created_at: nowIso(), updated_at: nowIso()
   }));
 }
 
@@ -714,6 +756,7 @@ export function ready(): Promise<void> {
       // replace the two old placeholder properties with the real Parva Realty catalogue
       const props = T('properties');
       if (props.length <= 2 && props.every(x => ['Parva Residences, Business Bay', 'Parva Villas, Tumkur Road'].includes(x.title))) { S.tables.properties = parvaProperties(null); save(); }
+      T('properties').forEach(x => { if (!x.image_url && PARVA_IMG[x.title] && x.url === PARVA_URL) { x.image_url = PARVA_IMG[x.title]; save(); } });
       const st = settings(); if (st && ['#1C2B4A', '#0B1F3F', '#121212'].includes(st.primary_color)) { st.primary_color = '#0F2147'; save(); }
     }
     else { S = await seed(); save(); }

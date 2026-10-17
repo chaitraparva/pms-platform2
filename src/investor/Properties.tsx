@@ -46,6 +46,19 @@ export function PropertyGrid({ items, siteUrl, limit }: { items: Property[]; sit
   );
 }
 
+/** Full-width Parva Realty banner: a featured property photo with a link to the official website. */
+export function ParvaBanner({ items, siteUrl, unlocked }: { items: Property[]; siteUrl: string; unlocked: number }) {
+  const photo = items.find(p => p.image_url)?.image_url;
+  return (
+    <a className="parva-banner" href={siteUrl} target="_blank" rel="noopener noreferrer" style={photo ? { backgroundImage: `linear-gradient(90deg, rgba(11,24,52,.94) 0%, rgba(11,24,52,.72) 45%, rgba(11,24,52,.15) 100%), url("${photo}")` } : undefined}>
+      <span className="pb-tag">PARVA REALTY · DUBAI</span>
+      <b>Own premium Dubai real estate</b>
+      <span className="pb-sub">{unlocked > 0 ? `Your ${money(unlocked)} of principal is unlocked. Explore ${items.length || ''} curated Parva Realty properties.` : `Explore ${items.length || ''} curated properties from Parva Realty in Dubai.`}</span>
+      <span className="btn pb-btn">Visit parvarealty.ae ›</span>
+    </a>
+  );
+}
+
 export function Properties() {
   const { profile, settings } = useAuth();
   const siteUrl = settings?.property_site_url || 'https://parvarealty.ae/';
@@ -59,6 +72,7 @@ export function Properties() {
         sub="Property details and prices are shown as published by Parva Realty. Open a property to see it on the official website."
         actions={<a className="btn" href={siteUrl} target="_blank" rel="noopener noreferrer">All listings on {host(siteUrl)}</a>} />
       {q.error && <ErrorNote msg={q.error} retry={q.reload} />}
+      {q.data && <ParvaBanner items={q.data.items} siteUrl={siteUrl} unlocked={q.data.unlocked} />}
       {q.data && q.data.unlocked > 0 && (
         <div className="note ok">You have <b>{money(q.data.unlocked)}</b> of unlocked principal. Exploring a property does not move or reinvest it; any purchase is a separate agreement with Parva Realty.</div>
       )}

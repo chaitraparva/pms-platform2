@@ -19,6 +19,7 @@ import { Reports } from './Reports';
 import { Audit } from './Audit';
 import { Settings } from './Settings';
 import { Search } from './Search';
+import { Ranking } from './Ranking';
 
 export default function AdminApp() {
   const nav = useNavigate();
@@ -28,7 +29,7 @@ export default function AdminApp() {
   }, []);
   const items: NavItem[] = [
     { group: 'Dashboard' }, { to: '/admin', label: 'Overview', icon: 'home' },
-    { to: '/admin/branches', label: 'Branches', icon: 'branch' },
+    { to: '/admin/branches', label: 'Branches', icon: 'branch' }, { to: '/admin/ranking', label: 'Investor Ranking', icon: 'rank' },
     { group: 'Manage' }, { to: '/admin/investors', label: 'Investors', icon: 'users' }, { to: '/admin/plans', label: 'Investment Plans', icon: 'plans' },
     { to: '/admin/investments', label: 'Investments', icon: 'invest' }, { to: '/admin/accruals', label: 'Monthly ROI & Accruals', icon: 'roi' },
     { to: '/admin/payouts', label: 'Payouts', icon: 'payout', count: counts.data?.payouts },
@@ -50,6 +51,7 @@ export default function AdminApp() {
         <Route path="accruals" element={<Accruals />} />
         <Route path="payouts" element={<Payouts />} />
         <Route path="branches" element={<Branches />} />
+        <Route path="ranking" element={<Ranking />} />
         <Route path="branches/:code" element={<BranchDetail />} />
         <Route path="brochures" element={<Brochures />} />
         <Route path="properties" element={<Properties />} />

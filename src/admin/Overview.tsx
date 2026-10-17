@@ -4,12 +4,13 @@ import { api, rpc, must, fetchAll } from '../lib/api';
 import { useQuery } from '../lib/useQuery';
 import { useAuth, useSettings } from '../lib/auth';
 import { downloadCsv } from '../lib/csv';
-import { money, moneyShort, date, dateShort, daysBetween, initials, today, addMonths, lockinText, rateShort, LEDGER_TYPE, investmentLabel } from '../lib/format';
+import { money, moneyShort, date, today, addMonths, lockinText, rateShort, investmentLabel } from '../lib/format';
 import type { Branch, Dashboard, Investment, Profile, LedgerEntry, Balance } from '../lib/types';
 import { BranchCard, rateColor, withStandardRates } from './Branches';
-import { Kpi, Empty, ErrorNote, Loading, PageHead, KycBadge, Badge, useAction } from '../ui/kit';
+import { Kpi, Empty, ErrorNote, Loading, PageHead, Badge, useAction } from '../ui/kit';
 import { BarChart, Donut, CHART_COLORS, monthLabel } from '../ui/Charts';
 import { Icon } from '../ui/Icon';
+import { TopInvestors } from './Ranking';
 
 type Lite = Pick<Profile, 'id' | 'full_name' | 'code'>;
 interface ActionItem { tag: string; text: string; to: string; cls?: string }
@@ -103,7 +104,7 @@ export function Overview() {
 
   if (q.error) return <>{head}<ErrorNote msg={q.error} retry={q.reload} /></>;
   if (!q.data) return <>{head}<Loading rows={6} /></>;
-  const { dash: d, planCount, pendRows, kycRows, matRows, ledRows, recentRows, names, codes } = q.data;
+  const { dash: d, planCount, pendRows, kycRows, names } = q.data;
 
   /* ---------- first-run setup ---------- */
   const steps: { done: boolean; title: string; sub: string; to: string; cta: string }[] = [
@@ -161,15 +162,12 @@ export function Overview() {
         </div>
       )}
 
-      <div className="kpis k4">
+      <div className="kpis">
         <Kpi label="Total investors" value={d.total_investors} sub={`+${d.new_investors_month} this month · ${d.investors_with_investments} invested`} subCls={d.new_investors_month ? 'up' : ''} onClick={() => nav('/admin/investors' + (branchRow ? '?branch=' + branchRow.code : ''))} tip="Investor accounts in this view, any status." />
         <Kpi label="Total principal invested" value={moneyShort(d.principal_invested)} sub={`${d.live_investments} live investments`} onClick={() => nav('/admin/investments' + (branchRow ? '?branch=' + branchRow.code : ''))} tip="Sum of principal on live investments. This is investor money, not company revenue." />
         <Kpi label="Unlocked principal" value={moneyShort(d.unlocked_principal)} cls={Number(d.unlocked_principal) ? 'pos' : ''} sub={`${d.unlocked_count} investment${d.unlocked_count === 1 ? '' : 's'} past lock-in`} onClick={() => nav('/admin/investments?f=unlocked' + branchCode)} tip="Principal of investments whose lock-in end date has passed. A status only: nothing is paid out or reinvested automatically." />
         <Kpi label="Locked principal" value={moneyShort(d.locked_principal)} sub={`${d.locked_count} in lock-in`} onClick={() => nav('/admin/investments?f=locked' + branchCode)} tip="Principal of live investments still inside their 6-month or 1-year lock-in." />
         <Kpi label="Total returns" value={moneyShort(d.accrued_total)} sub={Number(d.reversed_total) ? `Net of ${money(Math.abs(Number(d.reversed_total)))} reversals` : 'Accrued, net of reversals'} onClick={() => nav('/admin/accruals')} tip="Sum of all accrual entries less reversals. Accrued is not the same as paid." />
-        <Kpi label="Total returns paid" value={moneyShort(d.paid_total)} sub="Confirmed payments only" cls="pos" onClick={() => nav('/admin/payouts')} tip="Payouts confirmed with a bank reference." />
-        <Kpi label="Outstanding return obligations" value={moneyShort(d.outstanding_total)} sub={`${d.outstanding_count} payouts not yet paid`} subCls={d.outstanding_count ? 'warn' : ''} onClick={() => nav('/admin/payouts')} tip="Accrued returns that are not yet confirmed paid (accrued + approved + processing + failed)." />
-        <Kpi label={`Unlocking in ${s.approaching_days} days`} value={d.maturing_count} sub={`${moneyShort(d.maturing_principal)} principal`} subCls={d.maturing_count ? 'warn' : ''} tip={`Investments whose lock-in ends within the next ${s.approaching_days} days (Settings → Money & dates).`} />
       </div>
 
       <div className="branch-cards">
@@ -208,6 +206,8 @@ export function Overview() {
           </div>
         </div>
       </div>
+
+      <TopInvestors />
 
       <div className="grid g-2-1">
         <div className="card">
@@ -264,37 +264,6 @@ export function Overview() {
         </div></div>
       </div>
 
-      <div className="grid g-1-1-1">
-        <div className="card"><div className="card-h"><h3>Upcoming unlocks</h3><div className="r"><Link to="/admin/investments">Register</Link></div></div><div className="card-b list">
-          {matRows.length ? matRows.map(i => {
-            const left = i.maturity_date ? daysBetween(today(), i.maturity_date) : 0;
-            return (
-              <div key={i.id} style={{ cursor: 'pointer' }} onClick={() => nav('/admin/investments/' + i.code)}>
-                <div className="grow"><b>{i.code} · {names[i.investor_id]?.full_name || '—'}</b><span>{money(i.principal)} · {i.plan_name}</span></div>
-                <Badge cls="b-amber">{dateShort(i.maturity_date)} · {left}d</Badge>
-              </div>
-            );
-          }) : <Empty title="Nothing maturing soon">{`No lock-in ends in the next ${s.approaching_days} days.`}</Empty>}
-        </div></div>
-        <div className="card"><div className="card-h"><h3>Recent transactions</h3><div className="r"><Link to="/admin/transactions">View all</Link></div></div><div className="card-b list">
-          {ledRows.length ? ledRows.map(t => (
-            <div key={t.id}>
-              <div className="grow"><b>{LEDGER_TYPE[t.type] || t.type}{t.investment_id && codes[t.investment_id] ? ' · ' + codes[t.investment_id] : ''}</b>
-                <span>{t.code} · {dateShort(t.occurred_on)}{t.investor_id && names[t.investor_id] ? ' · ' + names[t.investor_id].full_name : ''}</span></div>
-              <span className={'num ' + (Number(t.amount) < 0 ? 'neg' : '')}>{money(t.amount)}</span>
-            </div>
-          )) : <Empty title="No transactions yet">Ledger entries appear when an investment is recorded.</Empty>}
-        </div></div>
-        <div className="card"><div className="card-h"><h3>Recently registered investors</h3><div className="r"><Link to="/admin/investors">Directory</Link></div></div><div className="card-b list">
-          {recentRows.length ? recentRows.map(v => (
-            <div key={v.id} style={{ cursor: 'pointer' }} onClick={() => nav('/admin/investors/' + v.code)}>
-              <div className="avatar" style={{ width: 30, height: 30, fontSize: 11 }}>{initials(v.full_name || v.email)}</div>
-              <div className="grow"><b>{v.full_name || v.email}</b><span>{v.code} · {date(v.created_at)}</span></div>
-              <KycBadge k={v.kyc_status} />
-            </div>
-          )) : <Empty title="No investors yet"><Link to="/admin/investors?new=1">Add your first investor</Link></Empty>}
-        </div></div>
-      </div>
     </>
   );
 }
