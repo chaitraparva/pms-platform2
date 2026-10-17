@@ -209,7 +209,7 @@ export function Reports() {
         <ReportCard title="Upcoming unlocks" desc="Investments whose lock-in ends in the next N days, with contact details." onCsv={maturities}>
           <div className="field"><label>Next (days)</label><input className="input" type="number" min={1} max={3650} value={matDays} onChange={e => setMatDays(Math.max(1, parseInt(e.target.value || '1', 10)))} /></div>
         </ReportCard>
-        <ReportCard title="Branch summary" desc="Tumkur and Bangalore side by side: investors, principal, unlocked and locked principal, returns, and the split by monthly ROI." onCsv={branchSummary} />
+        <ReportCard title="Branch summary" desc="Dubai and Bangalore side by side: investors, principal, unlocked and locked principal, returns, and the split by monthly ROI." onCsv={branchSummary} />
         <ReportCard title="Plan version history" desc="Every plan version with its rate, limits, lock-in options, effective date and the reason for each change." onCsv={planVersions} />
         <ReportCard title="Transaction ledger" desc="The full append-only ledger for a date range, including reversing entries." onCsv={ledger}>
           <RangeInputs from={ledFrom} to={ledTo} setFrom={setLedFrom} setTo={setLedTo} />

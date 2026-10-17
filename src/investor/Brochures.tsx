@@ -9,6 +9,7 @@ import { date } from '../lib/format';
 import { Modal, useAction } from '../ui/kit';
 import { Icon } from '../ui/Icon';
 import type { MyBrochure } from '../lib/types';
+import { ParvaWelcome } from './Properties';
 
 export const loadMyBrochures = () => rpc<MyBrochure[]>('my_brochures').then(r => r || []);
 
@@ -77,5 +78,9 @@ export function BrochureGate() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q.data, want]);
 
-  return shown ? <BrochureModal b={shown} onClose={() => setShown(null)} /> : null;
+  // the Parva Realty welcome shows once per sign-in, after any brochure has been closed
+  const [parva, setParva] = useState(() => { try { return !sessionStorage.getItem('pms-parva-seen'); } catch { return true; } });
+  const closeParva = () => { setParva(false); try { sessionStorage.setItem('pms-parva-seen', '1'); } catch { /* ignore */ } };
+  if (shown) return <BrochureModal b={shown} onClose={() => setShown(null)} />;
+  return parva && q.data && autoDone ? <ParvaWelcome onClose={closeParva} /> : null;
 }

@@ -4,7 +4,8 @@ import { api, must } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useQuery } from '../lib/useQuery';
 import { money } from '../lib/format';
-import { Empty, ErrorNote, Loading, PageHead } from '../ui/kit';
+import { Empty, ErrorNote, Loading, Modal, PageHead } from '../ui/kit';
+import { useNavigate } from 'react-router-dom';
 import { Icon } from '../ui/Icon';
 import type { Property } from '../lib/types';
 import { isUnlocked } from '../lib/format';
@@ -78,5 +79,24 @@ export function Properties() {
       )}
       {q.loading && !q.data ? <Loading /> : q.data ? <div className="card"><div className="card-b"><PropertyGrid items={q.data.items} siteUrl={siteUrl} /></div></div> : <Empty title="Not available" />}
     </>
+  );
+}
+
+/** Shown once after an investor signs in, so they know Parva Realty properties are open to them. */
+export function ParvaWelcome({ onClose }: { onClose: () => void }) {
+  const { settings } = useAuth();
+  const nav = useNavigate();
+  const q = useQuery(loadProperties, []);
+  const siteUrl = settings?.property_site_url || 'https://parvarealty.ae/';
+  const items = q.data || [];
+  const photo = items.find(p => p.image_url)?.image_url;
+  return (
+    <Modal title="Explore Parva Realty properties" sub="Premium Dubai real estate, curated by Parva Realty." onClose={onClose} wide
+      foot={<><button className="btn ghost" onClick={onClose}>Maybe later</button><button className="btn" onClick={() => { onClose(); nav('/portal/properties'); }}>See all {items.length || ''} properties</button><a className="btn primary" href={siteUrl} target="_blank" rel="noopener noreferrer" onClick={onClose}>Visit parvarealty.ae</a></>}>
+      <div className="parva-welcome" style={photo ? { backgroundImage: `linear-gradient(0deg, rgba(11,24,52,.85), rgba(11,24,52,.1) 60%), url("${photo}")` } : undefined}>
+        <b>{items[0]?.title || 'Parva Realty'}</b><span>{items[0]?.location}{items[0]?.price_text ? ' · ' + items[0].price_text : ''}</span>
+      </div>
+      <p className="hint" style={{ marginTop: 12 }}>As a Parva investor you can explore these properties at any time from <b>Explore Properties</b> in the menu. Looking is free and never moves your principal.</p>
+    </Modal>
   );
 }

@@ -27,6 +27,7 @@ export function Login() {
     e.preventDefault(); setBusy(true); setMsg(null);
     const { data, error } = await api.auth.signInWithPassword({ email: email.trim(), password: pw });
     if (!error && data.session) {
+      try { sessionStorage.removeItem('pms-parva-seen'); } catch { /* ignore */ }
       // the chosen role must match the account, so an investor cannot land on the admin sign-in by mistake
       const { data: p } = await api.from('profiles').select('role').eq('id', data.session.user.id).maybeSingle();
       if (p && p.role !== as) {
@@ -67,6 +68,11 @@ export function Login() {
           <h1>{branding?.tagline || 'Every investment, return and maturity in one place.'}</h1>
           <p>Monthly simple-interest plans with contractual lock-ins, transparent accruals and confirmed payouts.</p>
         </div>
+        <a className="login-parva" href="https://www.parvarealty.ae/" target="_blank" rel="noopener noreferrer">
+          <span className="pb-tag">PARVA REALTY · DUBAI</span>
+          <b>Explore premium Dubai properties</b>
+          <span>Mercedes-Benz Places, Portofino Felicita, Sunset Bay Grand and more ›</span>
+        </a>
         <div className="hint" style={{ color: 'var(--on-navy-2)', position: 'relative', zIndex: 1 }}>{branding?.legal_footer}</div>
       </section>
       <section className="login-r">

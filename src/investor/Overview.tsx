@@ -69,6 +69,18 @@ export function Overview() {
         </div></div>
       ) : (
         <>
+          <ParvaBanner items={props} siteUrl={siteUrl} unlocked={unlocked} />
+
+          <div className="card">
+            <div className="card-h"><h3>How much you have invested</h3>
+              <div className="r legend"><span><i style={{ background: 'var(--chart-1)' }} />Invested</span><span><i style={{ background: 'var(--green)' }} />ROI released</span></div></div>
+            <div className="card-b">
+              <BarChart label="Principal invested and ROI released for each investment" labels={live.map(i => `${i.code} · ${rate(i.monthly_rate).replace(' / month', '')}`)} fmt={moneyShort} tipFmt={money}
+                onBar={ix => nav('/portal/investments/' + live[ix].code)}
+                series={[{ name: 'Invested', color: 'var(--chart-1)', values: live.map(i => Number(i.principal)) }, { name: 'ROI released', color: 'var(--green)', values: live.map(i => Number(bal(p, i.id).paid)) }]} />
+            </div>
+          </div>
+
           <div className="kpis k4">
             <Kpi label="Total principal invested" value={moneyShort(principal)} sub={`${live.length} live investment${live.length === 1 ? '' : 's'} · view details`} onClick={() => nav('/portal/investments')}
               tip="The amount you invested in investments that are live today. It does not include returns." />
@@ -79,8 +91,6 @@ export function Overview() {
             <Kpi label="Total returns" value={moneyShort(totalReturns)} sub={`${moneyShort(paid)} received`} onClick={() => nav('/portal/returns')}
               tip="All monthly returns earned so far (accrued), whether paid or not. Open to see every month." />
           </div>
-
-          <ParvaBanner items={props} siteUrl={siteUrl} unlocked={unlocked} />
 
           <RoiReleased p={p} inv={inv} principal={principal} rank={myRank} />
 

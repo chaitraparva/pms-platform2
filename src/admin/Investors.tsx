@@ -137,7 +137,7 @@ export function BranchDialog({ ids, label, current, branches, onClose, onDone }:
         <option value="">No branch</option>{branches.map(b => <option key={b.id} value={b.id}>{b.name}{b.status !== 'active' ? ' (inactive)' : ''}</option>)}
       </select></Field>
       <Field label="Reason (saved to audit log) *" err={tried && !reason.trim() ? 'Enter a reason.' : null}>
-        <input className={'input ' + (tried && !reason.trim() ? 'bad' : '')} value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. Investor joined through the Tumkur office" />
+        <input className={'input ' + (tried && !reason.trim() ? 'bad' : '')} value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. Investor joined through the Dubai office" />
       </Field>
     </Modal>
   );
@@ -183,7 +183,7 @@ function AddInvestor({ onClose, onDone }: { onClose: () => void; onDone: (code: 
         </div>
         <div className="f-row">
           <Field label="Full name *" err={tried ? errs.full_name : null}><input className={'input ' + (tried && errs.full_name ? 'bad' : '')} value={f.full_name} onChange={set('full_name')} placeholder="As on ID document" /></Field>
-          <Field label="Branch" hint="Tumkur or Bangalore. You can change it later.">
+          <Field label="Branch" hint="Dubai or Bangalore. You can change it later.">
             <select className="input" value={branch} onChange={e => setBranch(e.target.value)}>
               <option value="">Choose later</option>{(bq.data || []).filter(b => b.status === 'active').map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>

@@ -658,7 +658,7 @@ async function seed(): Promise<Store> {
   S.users.push({ id: adminId, email: ADMIN_EMAIL, pw: await hash(ADMIN_PASSWORD) });
   T('profiles').push(profileRow(adminId, ADMIN_EMAIL, 'Chaitra', 'ADM-' + nextSeq('admin', 1), 'super_admin', 'verified', { created_at: addMonths(today(), -13) + 'T09:00:00Z' }));
   currentUid = adminId;
-  const br = ([['TMK', 'Tumkur'], ['BLR', 'Bangalore']] as [string, string][]).map(([code, name]) => { const id = uuid(); T('branches').push({ id, code, name, city: name, status: 'active', created_by: adminId, created_at: nowIso(), updated_at: nowIso() }); return id; });
+  const br = ([['DXB', 'Dubai'], ['BLR', 'Bangalore']] as [string, string][]).map(([code, name]) => { const id = uuid(); T('branches').push({ id, code, name, city: name, status: 'active', created_by: adminId, created_at: nowIso(), updated_at: nowIso() }); return id; });
   const start = addMonths(today(), -12);
   const plans = ([['P2', '2% Monthly Plan', 2], ['P33', '3.3% Monthly Plan', 3.3], ['P6', '6% Monthly Plan', 6]] as [string, string, number][]).map(([code, name, rate]) => {
     const id = createPlan(code, name, `Simple monthly return of ${rate}% on the original principal, paid monthly.`, { monthly_rate: rate, min_amount: 100000, max_amount: 50000000, lockin_options: [6, 12], eligible_from: start, effective_from: start });
@@ -667,9 +667,9 @@ async function seed(): Promise<Store> {
 
   // Sample investors (the first one has a login so the investor portal can be tried).
   const people: [string, string, string, number][] = [
-    ['Ananya Rao', INVESTOR_EMAIL, 'Bangalore', 1], ['Rahul Menon', 'rahul.menon@example.com', 'Bangalore', 1], ['Fatima Shaikh', 'fatima.shaikh@example.com', 'Tumkur', 0],
-    ['Vikram Iyer', 'vikram.iyer@example.com', 'Tumkur', 0], ['Meera Kapoor', 'meera.kapoor@example.com', 'Bangalore', 1], ['Arjun Nair', 'arjun.nair@example.com', 'Tumkur', 0],
-    ['Sana Qureshi', 'sana.qureshi@example.com', 'Bangalore', 1], ['Kavya Reddy', 'kavya.reddy@example.com', 'Tumkur', 0]
+    ['Ananya Rao', INVESTOR_EMAIL, 'Bangalore', 1], ['Rahul Menon', 'rahul.menon@example.com', 'Bangalore', 1], ['Fatima Shaikh', 'fatima.shaikh@example.com', 'Dubai', 0],
+    ['Vikram Iyer', 'vikram.iyer@example.com', 'Dubai', 0], ['Meera Kapoor', 'meera.kapoor@example.com', 'Bangalore', 1], ['Arjun Nair', 'arjun.nair@example.com', 'Dubai', 0],
+    ['Sana Qureshi', 'sana.qureshi@example.com', 'Bangalore', 1], ['Kavya Reddy', 'kavya.reddy@example.com', 'Dubai', 0]
   ];
   const ids = await Promise.all(people.map(async ([name, email, city, b], i) => {
     const id = uuid();
@@ -757,6 +757,9 @@ export function ready(): Promise<void> {
       const props = T('properties');
       if (props.length <= 2 && props.every(x => ['Parva Residences, Business Bay', 'Parva Villas, Tumkur Road'].includes(x.title))) { S.tables.properties = parvaProperties(null); save(); }
       T('properties').forEach(x => { if (!x.image_url && PARVA_IMG[x.title] && x.url === PARVA_URL) { x.image_url = PARVA_IMG[x.title]; save(); } });
+      // the second branch is Dubai (it was Tumkur in earlier versions)
+      T('branches').forEach(b => { if (b.code === 'TMK' || b.name === 'Tumkur') { Object.assign(b, { code: 'DXB', name: 'Dubai', city: 'Dubai', updated_at: nowIso() }); save(); } });
+      T('profiles').forEach(x => { if (x.city === 'Tumkur') { x.city = 'Dubai'; save(); } });
       const st = settings(); if (st && ['#1C2B4A', '#0B1F3F', '#121212'].includes(st.primary_color)) { st.primary_color = '#0F2147'; save(); }
     }
     else { S = await seed(); save(); }

@@ -31,12 +31,11 @@ export default function AdminApp() {
     { group: 'Dashboard' }, { to: '/admin', label: 'Overview', icon: 'home' },
     { to: '/admin/branches', label: 'Branches', icon: 'branch' }, { to: '/admin/ranking', label: 'Investor Ranking', icon: 'rank' },
     { group: 'Manage' }, { to: '/admin/investors', label: 'Investors', icon: 'users' }, { to: '/admin/plans', label: 'Investment Plans', icon: 'plans' },
-    { to: '/admin/investments', label: 'Investments', icon: 'invest' }, { to: '/admin/accruals', label: 'Monthly ROI & Accruals', icon: 'roi' },
+    { to: '/admin/investments', label: 'Investments', icon: 'invest' },
     { to: '/admin/payouts', label: 'Payouts', icon: 'payout', count: counts.data?.payouts },
-    { to: '/admin/transactions', label: 'Transactions', icon: 'txn' },
     { group: 'Communicate & control' }, { to: '/admin/announcements', label: 'Announcements', icon: 'announce' },
-    { to: '/admin/brochures', label: 'Brochures', icon: 'brochure' }, { to: '/admin/properties', label: 'Parva Properties', icon: 'building' }, { to: '/admin/reports', label: 'Reports', icon: 'report' },
-    { to: '/admin/audit', label: 'Audit Logs', icon: 'audit' }, { to: '/admin/settings', label: 'Settings', icon: 'settings' }
+    { to: '/admin/brochures', label: 'Brochures', icon: 'brochure' }, { to: '/admin/properties', label: 'Parva Properties', icon: 'building' }, 
+    { to: '/admin/settings', label: 'Settings', icon: 'settings' }
   ];
   return (
     <Routes>

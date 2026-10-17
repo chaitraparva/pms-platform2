@@ -430,3 +430,14 @@ pre.json{background:var(--surface-2);border:1px solid var(--line);border-radius:
 .mini-bar{height:8px;border-radius:999px;background:var(--surface-2);overflow:hidden}
 .mini-bar i{display:block;height:100%;background:var(--green);border-radius:999px}
 @media (max-width:640px){.parva-banner{padding:22px 18px;min-height:160px}.parva-banner b{font-size:21px}}
+.admin-banner{min-height:170px}
+.parva-banner .pb-btn.ghost-w{background:rgba(255,255,255,.12);color:#fff;border-color:rgba(255,255,255,.35)}
+.parva-banner .pb-btn.ghost-w:hover{background:rgba(255,255,255,.22)}
+.login-parva{position:relative;z-index:1;display:grid;gap:4px;padding:18px 20px;border-radius:12px;color:#fff;text-decoration:none;background:linear-gradient(90deg,rgba(11,24,52,.9),rgba(11,24,52,.55)),url("https://www.parvarealty.ae/assets/image-43-B4Mm8xRT.png") center/cover;border:1px solid rgba(147,197,253,.25);transition:transform .15s}
+.login-parva:hover{transform:translateY(-1px);text-decoration:none}
+.login-parva .pb-tag{font-size:10.5px;letter-spacing:.18em;color:#93C5FD;font-weight:600}
+.login-parva b{font-size:18px}
+.login-parva span:last-child{font-size:12.5px;color:#D6E2F7}
+.parva-welcome{height:220px;border-radius:10px;background:linear-gradient(120deg,#13295A,#0B1834) center/cover;display:flex;flex-direction:column;justify-content:flex-end;padding:18px;color:#fff;gap:2px}
+.parva-welcome b{font-size:20px}
+.parva-welcome span{font-size:13px;color:#D6E2F7}

@@ -162,6 +162,21 @@ export function Overview() {
         </div>
       )}
 
+      <AdminBanner principal={Number(d.principal_invested)} investors={d.investors_with_investments} branches={(d.by_branch || []).map(b => b.name)} />
+
+      <div className="grid g-1-1">
+        <div className="card"><div className="card-h"><h3>Investors by branch</h3><div className="r hint">Click a branch to open it</div></div><div className="card-b">
+          <Donut label="Investors in each branch" fmt={v => `${v} investor${v === 1 ? '' : 's'}`} center1="Investors" center2={String((d.by_branch || []).reduce((n, b) => n + Number(b.investors), 0))}
+            onPart={ix => nav('/admin/branches/' + d.by_branch[ix].code)}
+            parts={(d.by_branch || []).map((b, i) => ({ name: b.name, value: Number(b.investors), color: ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)'][i % 3], sub: moneyShort(Number(b.principal)) + ' invested' }))} />
+        </div></div>
+        <div className="card"><div className="card-h"><h3>Principal by branch</h3><div className="r hint">Click a branch to open it</div></div><div className="card-b">
+          <Donut label="Principal invested in each branch" fmt={moneyShort} center1="Principal" center2={moneyShort(Number(d.principal_invested))}
+            onPart={ix => nav('/admin/branches/' + d.by_branch[ix].code)}
+            parts={(d.by_branch || []).map((b, i) => ({ name: b.name, value: Number(b.principal), color: ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)'][i % 3], sub: `${moneyShort(Number(b.unlocked))} unlocked` }))} />
+        </div></div>
+      </div>
+
       <div className="kpis">
         <Kpi label="Total investors" value={d.total_investors} sub={`+${d.new_investors_month} this month · ${d.investors_with_investments} invested`} subCls={d.new_investors_month ? 'up' : ''} onClick={() => nav('/admin/investors' + (branchRow ? '?branch=' + branchRow.code : ''))} tip="Investor accounts in this view, any status." />
         <Kpi label="Total principal invested" value={moneyShort(d.principal_invested)} sub={`${d.live_investments} live investments`} onClick={() => nav('/admin/investments' + (branchRow ? '?branch=' + branchRow.code : ''))} tip="Sum of principal on live investments. This is investor money, not company revenue." />
@@ -265,5 +280,24 @@ export function Overview() {
       </div>
 
     </>
+  );
+}
+
+/** Parva Realty banner at the top of the Super Admin Overview: a property photo with the portfolio at a glance. */
+function AdminBanner({ principal, investors, branches }: { principal: number; investors: number; branches: string[] }) {
+  const nav = useNavigate();
+  const pq = useQuery(async () => must(await api.from('properties').select('title,image_url,status').eq('status', 'published').order('sort_order')) as { title: string; image_url: string | null }[], []);
+  const photo = pq.data?.find(p => p.image_url)?.image_url;
+  return (
+    <div className="parva-banner admin-banner" style={photo ? { backgroundImage: `linear-gradient(90deg, rgba(11,24,52,.95) 0%, rgba(11,24,52,.75) 50%, rgba(11,24,52,.2) 100%), url("${photo}")` } : undefined}>
+      <span className="pb-tag">PARVA REALTY · PORTFOLIO MANAGEMENT</span>
+      <b>{moneyShort(principal)} invested by {investors} investor{investors === 1 ? '' : 's'}</b>
+      <span className="pb-sub">{branches.length ? branches.join(' and ') + ' branches · ' : ''}{pq.data?.length || 0} Parva properties live for investors</span>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
+        <button type="button" className="btn pb-btn" onClick={() => nav('/admin/ranking')}>Investor ranking</button>
+        <button type="button" className="btn pb-btn ghost-w" onClick={() => nav('/admin/properties')}>Parva properties</button>
+        <a className="btn pb-btn ghost-w" href="https://www.parvarealty.ae/" target="_blank" rel="noopener noreferrer">parvarealty.ae ›</a>
+      </div>
+    </div>
   );
 }

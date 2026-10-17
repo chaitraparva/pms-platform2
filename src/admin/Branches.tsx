@@ -1,4 +1,4 @@
-// Branch-wise view of the one Super Admin dashboard: Tumkur and Bangalore (and any
+// Branch-wise view of the one Super Admin dashboard: Dubai and Bangalore (and any
 // branch added later). Every figure comes from the database; branch totals are sums
 // of the investor records shown on each branch page.
 import { Fragment, useMemo, useState } from 'react';
@@ -118,7 +118,7 @@ function BranchForm({ b, onClose }: { b: Branch | null; onClose: () => void }) {
   const [f, setF] = useState({ code: b?.code || '', name: b?.name || '', city: b?.city || '', status: b?.status || 'active' });
   const [reason, setReason] = useState('');
   const [tried, setTried] = useState(false);
-  const err = !f.name.trim() ? 'Enter the branch name.' : !/^[A-Za-z0-9]{2,8}$/.test(f.code.trim()) ? 'Use a short code of 2 to 8 letters or digits, e.g. TMK.' : null;
+  const err = !f.name.trim() ? 'Enter the branch name.' : !/^[A-Za-z0-9]{2,8}$/.test(f.code.trim()) ? 'Use a short code of 2 to 8 letters or digits, e.g. DXB.' : null;
   const go = async () => {
     setTried(true); if (err) return;
     const r = await act.run(() => rpc('admin_save_branch', { p_id: b?.id || null, p_code: f.code.trim(), p_name: f.name.trim(), p_city: f.city.trim(), p_status: f.status, p_reason: reason.trim() || (b ? 'Branch updated' : 'Branch added') }),

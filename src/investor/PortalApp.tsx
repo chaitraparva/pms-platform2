@@ -29,7 +29,6 @@ export default function PortalApp() {
     { to: '/portal/returns', label: 'ROI Released', icon: 'roi' },
     { to: '/portal/properties', label: 'Explore Properties', icon: 'building' },
     { to: '/portal/announcements', label: 'Announcements', icon: 'announce', count: counts.data?.announcements },
-    { to: '/portal/documents', label: 'Documents', icon: 'doc' },
     { group: 'Account' }, { to: '/portal/profile', label: 'Profile & Security', icon: 'user' }
   ];
   return (
