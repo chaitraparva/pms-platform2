@@ -622,7 +622,7 @@ function profileRow(id: string, email: string, name: string, code: string, role:
 /* ---------- first run: Parva Realty setup plus a small set of sample investors ---------- */
 async function seed(): Promise<Store> {
   S = { v: 1, tables: Object.fromEntries(TABLES.map(t => [t, []])), seq: {}, users: [] };
-  T('settings').push({ id: 1, company_name: 'Parva Realty', tagline: 'Every investment, return and maturity in one place.', logo_url: null, primary_color: '#1C2B4A', currency: 'INR', locale: 'en-IN',
+  T('settings').push({ id: 1, company_name: 'Parva Realty', tagline: 'Every investment, return and maturity in one place.', logo_url: null, primary_color: '#0F2147', currency: 'INR', locale: 'en-IN',
     timezone: 'Asia/Kolkata', approaching_days: 60, request_window_days: 30, default_payout_lag_days: 3, four_eyes: true, allow_custom_lockin: false, lockin_options: [6, 12],
     default_terms: 'Returns are simple interest on the original principal at the monthly rate in this agreement. Unpaid returns are not added to principal.',
     default_risk_disclosure: 'Investments carry risk, including loss of principal. Contractual rates are not a guarantee of payment.',
@@ -670,12 +670,36 @@ async function seed(): Promise<Store> {
     else if (age > 5) Object.assign(p, { status: 'approved', approved_by: adminId, approved_at: nowIso() });
   });
   T('notifications').forEach(n => { if (n.created_at && diffDays(n.created_at.slice(0, 10), t) >= 0) n.read_at = T('payouts').find(p => p.accrual_id === n.source_id)?.status === 'paid' ? nowIso() : null; });
-  T('properties').push(
-    { id: uuid(), title: 'Parva Residences, Business Bay', location: 'Business Bay, Dubai', property_type: 'Apartments', price_text: 'From AED 1.2M', description: 'Waterfront apartments with canal views, close to Downtown Dubai.', image_url: null, url: 'https://parvarealty.ae/', status: 'published', sort_order: 1, created_by: adminId, created_at: nowIso(), updated_at: nowIso() },
-    { id: uuid(), title: 'Parva Villas, Tumkur Road', location: 'Tumkur Road, Bangalore', property_type: 'Villas', price_text: 'On request', description: 'Gated community villas on the Tumkur Road growth corridor.', image_url: null, url: 'https://parvarealty.ae/', status: 'published', sort_order: 2, created_by: adminId, created_at: nowIso(), updated_at: nowIso() });
+  T('properties').push(...parvaProperties(adminId));
   T('audit_logs').forEach(l => { l.actor_name = 'Chaitra'; });
   currentUid = null;
   return S;
+}
+
+
+/* ---------- the property catalogue published on parvarealty.ae (October 2026) ---------- */
+const PARVA_URL = 'https://www.parvarealty.ae/#properties';
+// [title, location, developer, type, size, handover, price, rental yield, capital growth, summary]
+const PARVA: [string, string, string, string, string, string, string, string, string, string][] = [
+  ['Mercedes-Benz Places', 'Downtown Dubai', 'Binghatti Developers', 'Branded Luxury Residences', '1,500 – 4,000 sq ft', 'Q4 2027', '₹13.03 Cr+ (AED 5M+)', '6.8%', '14.2%', 'The only Mercedes-Benz co-branded residential tower in the world, with Burj Khalifa views.'],
+  ['Portofino Felicita', 'Europe Island, The World Islands', 'The Heart of Europe', 'Sea-View Resort Units', '1,200 – 2,000 sq ft', 'Q2 2027', '₹13.6 – 14.3 Cr (AED 5.22M – 5.49M)', '7.2%', '13.5%', 'A resort-style sea-view residence on a man-made island.'],
+  ['SAMANA South Haven', 'Dubai South', 'SAMANA Developers', 'Studio / 1BR', '450 – 680 sq ft', 'Q3 2027', '₹1.56 Cr (from AED 599K)', '8.4%', '7.8%', 'Private-pool studios in the Al Maktoum Airport growth corridor, with a 1% monthly payment plan.'],
+  ['Sunset Bay Grand', 'Dubai Islands', 'Imtiaz Developments', '1BR / 2BR / 3BR Duplex', '900 – 2,800 sq ft', 'Q3 2027', '₹6.10 Cr (~AED 2.34M)', '8.1%', '11.2%', 'Waterfront address with direct sea access and a 3BR duplex format.'],
+  ['The Symphony', 'Meydan Horizon', 'Imtiaz Developments', '4BR / 5BR Residences', '3,200 – 6,500 sq ft', 'Q1 2028', '₹18.95 Cr (~AED 7.27M)', '6.5%', '15.1%', 'Design-led ultra-luxury residences in Meydan with racecourse views.'],
+  ['Auresta Tower', 'Jumeirah Village Circle', 'Tiger Properties', 'Studio / 1BR', '480 – 750 sq ft', 'Q2 2027', '₹2.22 Cr (~AED 850K)', '9.1%', '7.2%', 'JVC studios, an area known for some of Dubai’s highest studio rental yields.'],
+  ['Tiger Sky Tower', 'Business Bay', 'Tiger Properties', '1BR / 2BR / 3BR+', '780 – 2,400 sq ft', 'Q4 2027', '₹8.26 Cr (~AED 3.17M)', '7.8%', '10.5%', 'Iconic architecture in central Business Bay.'],
+  ['Serenz', 'Jumeirah Village Circle', 'Danube Properties', 'Studio / 1BR / 2BR', '500 – 1,100 sq ft', 'Q4 2027', '₹2.87 Cr (~AED 1.10M)', '8.8%', '7.5%', 'Danube project in JVC with a flexible 1% payment plan.'],
+  ['Bianca', 'Dubailand', 'Reportage Properties', '2BR Townhouse', '1,450 – 1,800 sq ft', 'Q1 2028', '₹3.47 Cr (~AED 1.33M)', '7.9%', '9.4%', 'Townhouses at mid-range pricing with strong family rental demand.'],
+  ['Enre Residence', 'Dubai South', 'Imtiaz Developments', '2BR', '1,200 – 1,550 sq ft', 'Q2 2027', '₹4.92 Cr (~AED 1.89M)', '8.5%', '9.8%', 'Premium-design 2BR homes in the Dubai South growth corridor.'],
+  ['TIMEZ', 'Dubai Silicon Oasis', 'Danube Properties', '1BR / 2BR', '900 – 1,350 sq ft', 'Q3 2027', '₹4.30 Cr (~AED 1.65M)', '8.2%', '8.6%', 'Tech-hub location with steady rental demand and a 1% payment plan.'],
+  ['Greenz', 'Academic City', 'Danube Properties', '3BR Family', '1,800 – 2,400 sq ft', 'Q1 2028', '₹9.56 Cr (~AED 3.67M)', '7.5%', '9.9%', 'Large family apartments next to Academic City’s 50,000-student catchment.']
+];
+function parvaProperties(by: string | null): Row[] {
+  return PARVA.map(([title, location, dev, type, size, handover, price, yld, cap, about], k) => ({
+    id: uuid(), title, location, property_type: type, price_text: price,
+    description: `${about} By ${dev} · ${size} · handover ${handover} · ${yld} rental yield, ${cap} capital growth (as listed by Parva Realty).`,
+    image_url: null, url: PARVA_URL, status: 'published', sort_order: k + 1, created_by: by, created_at: nowIso(), updated_at: nowIso()
+  }));
 }
 
 /* ---------- start-up ---------- */
@@ -684,7 +708,14 @@ export function ready(): Promise<void> {
   return readyP ||= (async () => {
     let saved: Store | undefined;
     saved = load();
-    if (saved) { S = saved; TABLES.forEach(t => { S.tables[t] ||= []; }); }
+    if (saved) {
+      S = saved; TABLES.forEach(t => { S.tables[t] ||= []; });
+      // move browsers that still have the old blue brand colour onto the current blue theme
+      // replace the two old placeholder properties with the real Parva Realty catalogue
+      const props = T('properties');
+      if (props.length <= 2 && props.every(x => ['Parva Residences, Business Bay', 'Parva Villas, Tumkur Road'].includes(x.title))) { S.tables.properties = parvaProperties(null); save(); }
+      const st = settings(); if (st && ['#1C2B4A', '#0B1F3F', '#121212'].includes(st.primary_color)) { st.primary_color = '#0F2147'; save(); }
+    }
     else { S = await seed(); save(); }
     runAllAccruals();
     setInterval(() => runAllAccruals(), 60 * 60 * 1000);

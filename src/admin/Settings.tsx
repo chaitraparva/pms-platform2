@@ -47,7 +47,7 @@ export function Settings() {
   const changed = KEYS.filter(k => !same(f[k], orig[k]));
 
   const errs: Record<string, string | null> = {
-    primary_color: !/^#[0-9a-fA-F]{6}$/.test(f.primary_color) ? 'Use a hex colour like #0B1F3F.' : null,
+    primary_color: !/^#[0-9a-fA-F]{6}$/.test(f.primary_color) ? 'Use a hex colour like #0F2147.' : null,
     support_email: f.support_email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.support_email.trim()) ? 'Enter a valid email address.' : null,
     locale: (() => { try { new Intl.NumberFormat(f.locale); return null; } catch { return 'Unknown locale code.'; } })(),
     timezone: (() => { try { new Intl.DateTimeFormat('en', { timeZone: f.timezone }); return null; } catch { return 'Unknown time zone. Use an IANA name like Asia/Kolkata.'; } })(),
@@ -96,7 +96,7 @@ export function Settings() {
           <div className="f-row">
             <Field label="Primary colour" err={e('primary_color')}>
               <div style={{ display: 'flex', gap: 8 }}>
-                <input type="color" aria-label="Pick colour" value={/^#[0-9a-fA-F]{6}$/.test(f.primary_color) ? f.primary_color : '#0B1F3F'} onChange={txt('primary_color')} style={{ width: 44, height: 38, padding: 2, border: '1px solid var(--line-strong)', borderRadius: 7, background: 'var(--surface)' }} />
+                <input type="color" aria-label="Pick colour" value={/^#[0-9a-fA-F]{6}$/.test(f.primary_color) ? f.primary_color : '#0F2147'} onChange={txt('primary_color')} style={{ width: 44, height: 38, padding: 2, border: '1px solid var(--line-strong)', borderRadius: 7, background: 'var(--surface)' }} />
                 <input className={'input mono ' + (e('primary_color') ? 'bad' : '')} value={f.primary_color} onChange={txt('primary_color')} />
               </div>
             </Field>
