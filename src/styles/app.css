@@ -441,3 +441,6 @@ pre.json{background:var(--surface-2);border:1px solid var(--line);border-radius:
 .parva-welcome{height:220px;border-radius:10px;background:linear-gradient(120deg,#13295A,#0B1834) center/cover;display:flex;flex-direction:column;justify-content:flex-end;padding:18px;color:#fff;gap:2px}
 .parva-welcome b{font-size:20px}
 .parva-welcome span{font-size:13px;color:#D6E2F7}
+.subtabs{margin-bottom:-4px;overflow:visible}
+.subtabs .tab{text-decoration:none}
+.subtabs .ct{margin-left:6px;font-size:11px;background:var(--amber-soft);color:var(--amber);border-radius:999px;padding:1px 7px;font-weight:700}

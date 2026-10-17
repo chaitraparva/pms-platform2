@@ -295,6 +295,7 @@ function AdminBanner({ principal, investors, branches }: { principal: number; in
       <span className="pb-sub">{branches.length ? branches.join(' and ') + ' branches · ' : ''}{pq.data?.length || 0} Parva properties live for investors</span>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
         <button type="button" className="btn pb-btn" onClick={() => nav('/admin/ranking')}>Investor ranking</button>
+        <button type="button" className="btn pb-btn ghost-w" onClick={() => nav('/admin/branches')}>Manage branches</button>
         <button type="button" className="btn pb-btn ghost-w" onClick={() => nav('/admin/properties')}>Parva properties</button>
         <a className="btn pb-btn ghost-w" href="https://www.parvarealty.ae/" target="_blank" rel="noopener noreferrer">parvarealty.ae ›</a>
       </div>

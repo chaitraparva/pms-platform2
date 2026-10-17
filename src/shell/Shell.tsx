@@ -8,7 +8,7 @@ import { dateShort, initials } from '../lib/format';
 import { onRefresh, refreshAll } from '../lib/useQuery';
 import type { Notification } from '../lib/types';
 
-export interface NavItem { group?: string; to?: string; label?: string; icon?: string; count?: number }
+export interface NavItem { group?: string; to?: string; label?: string; icon?: string; count?: number; also?: string[] }
 
 export function Logo({ name, url, size }: { name: string; url: string | null | undefined; size?: number }) {
   const s = size ? { width: size, height: size } : undefined;
@@ -69,7 +69,7 @@ export function Shell({ roleLabel, nav, searchPh, onSearch, base }: { roleLabel:
           <div className="brand"><Logo name={company} url={settings?.logo_url} /><div className="brand-txt"><b>{company}</b><small>{roleLabel}</small></div></div>
           <nav>
             {nav.map((n, i) => n.group ? <div key={i} className="nav-grp">{n.group}</div> : (
-              <NavLink key={n.to} to={n.to!} end={n.to === base} className={({ isActive }) => 'nav-a' + (isActive ? ' on' : '')} title={n.label}>
+              <NavLink key={n.to} to={n.to!} end={n.to === base} className={({ isActive }) => 'nav-a' + (isActive || n.also?.some(x => loc.pathname.startsWith(x)) ? ' on' : '')} title={n.label}>
                 <Icon name={n.icon!} /><span>{n.label}</span>{!!n.count && <em className="ct">{n.count}</em>}
               </NavLink>
             ))}

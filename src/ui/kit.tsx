@@ -1,4 +1,5 @@
 import { ButtonHTMLAttributes, createContext, KeyboardEvent as ReactKeyboardEvent, ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { NavLink } from 'react-router-dom';
 import { Icon } from './Icon';
 import { INV_BADGE, LEDGER_BADGE, PAY_BADGE, investmentLabel } from '../lib/format';
 import type { Investment } from '../lib/types';
@@ -157,3 +158,12 @@ export function Field({ label, hint, children, err }: { label: string; hint?: Re
 export const IconBtn = ({ icon, children, ...p }: { icon?: string; children: ReactNode } & ButtonHTMLAttributes<HTMLButtonElement>) => (
   <button {...p} className={'btn ' + (p.className || '')}>{icon && <Icon name={icon} />}{children}</button>
 );
+
+/** Page-level tabs that group related admin pages under one menu item. */
+export function SubTabs({ tabs }: { tabs: { to: string; label: string; count?: number }[] }) {
+  return (
+    <nav className="tabs subtabs" aria-label="Section">
+      {tabs.map(t => <NavLink key={t.to} to={t.to} end className={({ isActive }) => 'tab' + (isActive ? ' on' : '')}>{t.label}{t.count ? <span className="ct">{t.count}</span> : null}</NavLink>)}
+    </nav>
+  );
+}

@@ -7,9 +7,9 @@ import { createUser, resetUserPassword } from '../lib/adminApi';
 import { uploadDocument, openDocument, deleteDocument } from '../lib/docs';
 import { downloadCsv } from '../lib/csv';
 import { money, date, dateTime, initials, isUnlocked, lockinText, rate, today, LEDGER_TYPE } from '../lib/format';
-import type { AuditLog, Branch, Profile, Investment, Balance, LedgerEntry, DocumentRow, KycStatus } from '../lib/types';
+import type { AuditLog, Branch, Profile, Investment, Balance, LedgerEntry, DocumentRow, KycStatus, Payout } from '../lib/types';
 import { DataTable, Col } from '../ui/DataTable';
-import { Kpi, Empty, ErrorNote, Loading, PageHead, KycBadge, AcctBadge, InvBadge, LedgerBadge, Drawer, Modal, Field, useAction, Badge } from '../ui/kit';
+import { Kpi, Empty, ErrorNote, Loading, PageHead, KycBadge, AcctBadge, InvBadge, LedgerBadge, Drawer, Modal, Field, useAction, Badge, PayBadge } from '../ui/kit';
 import { Icon } from '../ui/Icon';
 
 const LIVE = ['active', 'matured', 'redemption_requested', 'redemption_processing'];
@@ -216,24 +216,25 @@ function AddInvestor({ onClose, onDone }: { onClose: () => void; onDone: (code: 
 
 /* =============================== DETAIL =============================== */
 interface DetailData {
-  p: Profile; invs: Investment[]; bal: Map<string, Balance>; history: AuditLog[]; ledger: LedgerEntry[]; docs: DocumentRow[]; invCode: Record<string, string>; branches: Branch[];
+  p: Profile; invs: Investment[]; bal: Map<string, Balance>; history: AuditLog[]; ledger: LedgerEntry[]; payouts: Payout[]; docs: DocumentRow[]; invCode: Record<string, string>; branches: Branch[];
 }
 
 async function loadDetail(code: string): Promise<DetailData | null> {
   const p = must(await api.from('profiles').select('*').eq('code', code).maybeSingle()) as Profile | null;
   if (!p || !(p as Profile).id) return null;
-  const [invs, history, ledger, docs, branches] = await Promise.all([
+  const [invs, history, ledger, docs, branches, pays] = await Promise.all([
     fetchAll<Investment>((a, b) => api.from('investments').select('*').eq('investor_id', p.id).order('created_at', { ascending: false }).range(a, b)),
     api.from('audit_logs').select('*').eq('entity_id', p.id).order('at', { ascending: false }).limit(30),
     api.from('ledger_entries').select('*').eq('investor_id', p.id).order('occurred_on', { ascending: false }).order('created_at', { ascending: false }).limit(12),
     api.from('documents').select('*').eq('owner_id', p.id).order('created_at', { ascending: false }),
-    loadBranches()
+    loadBranches(),
+    api.from('payouts').select('*').eq('investor_id', p.id).order('due_date', { ascending: false }).limit(24)
   ]);
   const ids = invs.map(i => i.id);
   const bal = ids.length ? must(await api.from('investment_balances').select('*').in('investment_id', ids)) as Balance[] : [];
   const invCode: Record<string, string> = {};
   invs.forEach(i => { invCode[i.id] = i.code; });
-  return { p, invs, bal: new Map(bal.map(b => [b.investment_id, b])), history: must(history) as AuditLog[], ledger: must(ledger) as LedgerEntry[], docs: must(docs) as DocumentRow[], invCode, branches };
+  return { p, invs, bal: new Map(bal.map(b => [b.investment_id, b])), history: must(history) as AuditLog[], ledger: must(ledger) as LedgerEntry[], payouts: must(pays) as Payout[], docs: must(docs) as DocumentRow[], invCode, branches };
 }
 
 type Dialog = null | 'kyc-verified' | 'kyc-rejected' | 'status' | 'edit' | 'upload' | 'branch' | 'password' | { del: DocumentRow };
@@ -253,7 +254,7 @@ export function InvestorDetail() {
     <><PageHead crumbs={['Investors', 'Not found']} title="Investor not found" />
       <Empty title="Investor not found">No investor has the code {code}. <Link to="/admin/investors">Back to investors</Link></Empty></>
   );
-  const { p, invs, bal, history, ledger, docs, invCode, branches } = q.data;
+  const { p, invs, bal, history, ledger, payouts, docs, invCode, branches } = q.data;
   const live = invs.filter(i => LIVE.includes(i.status));
   const principal = live.reduce((x, i) => x + Number(i.principal), 0);
   const unlocked = live.filter(i => isUnlocked(i)).reduce((x, i) => x + Number(i.principal), 0);
@@ -349,6 +350,21 @@ export function InvestorDetail() {
               </div>
             )}
           </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-h"><h3>Payouts</h3><div className="r"><Link to="/admin/payouts">Approve and pay</Link></div></div>
+        <div className="tbl">
+          {payouts.length ? (
+            <table>
+              <thead><tr><th>Payout</th><th>Investment</th><th>Due</th><th className="n">Amount</th><th>Status</th><th>Reference</th></tr></thead>
+              <tbody>{payouts.map(x => (
+                <tr key={x.id}><td className="m">{x.code}</td><td className="m"><Link to={'/admin/investments/' + (invCode[x.investment_id] || '')}>{invCode[x.investment_id] || '—'}</Link></td>
+                  <td>{date(x.due_date)}</td><td className="n">{money(x.amount)}</td><td><PayBadge s={x.status} /></td><td className="m">{x.payment_ref || x.batch_ref || '—'}</td></tr>
+              ))}</tbody>
+            </table>
+          ) : <div className="card-b"><Empty title="No payouts yet">Monthly returns appear here once an investment starts accruing.</Empty></div>}
         </div>
       </div>
 
