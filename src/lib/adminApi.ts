@@ -15,6 +15,8 @@ export interface NewUser {
   bank_name?: string;
   bank_account_masked?: string;
   bank_ifsc?: string;
+  /** Investors: the admin who brought them in (gets the admin bonus). Defaults to the admin creating the account. */
+  introduced_by?: string | null;
 }
 
 /** Creates a login with a temporary password (stored on this device, never shown again). */

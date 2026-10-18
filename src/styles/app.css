@@ -444,3 +444,18 @@ pre.json{background:var(--surface-2);border:1px solid var(--line);border-radius:
 .subtabs{margin-bottom:-4px;overflow:visible}
 .subtabs .tab{text-decoration:none}
 .subtabs .ct{margin-left:6px;font-size:11px;background:var(--amber-soft);color:var(--amber);border-radius:999px;padding:1px 7px;font-weight:700}
+.popover .nav-a span{display:inline!important}
+/* phone: sign-in form first, compact Parva panel below it */
+@media (max-width:760px){
+  .login-r{padding:24px 16px 32px;place-items:start stretch}
+  .login-box{width:100%}
+  .login-l{padding:20px 16px;gap:14px;min-height:0}
+  .login-l h1,.login-l p,.login-l>.hint{display:none}
+  .login-l>div:has(h1){display:none!important}
+  .login-parva{padding:14px 16px}
+  .login-parva b{font-size:16px}
+}
+@media (max-width:760px){.modal .mf,.drawer .df{flex-wrap:wrap}.modal .mf>*{flex:1 1 auto;justify-content:center}}
+@media (max-width:760px){.modal,.modal.wide{width:calc(100vw - 32px)}}
+.card-b>*,.grid>*{min-width:0}
+@media (max-width:760px){.chart text{font-size:19px}}

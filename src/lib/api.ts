@@ -76,7 +76,8 @@ class Query implements PromiseLike<Res> {
   private rows(): any[] {
     const v = db.view(this.table);
     const base = v || db.T(this.table);
-    return base.filter(r => db.canRead(this.table, r));
+    // investors get a redacted copy (their own ROI only, never the admin bonus split)
+    return base.filter(r => db.canRead(this.table, r)).map(r => db.redact(this.table, r));
   }
   private shape(rows: any[]) { return rows.map(r => { const c = JSON.parse(JSON.stringify(r)); if (!this.cols) return c; const o: any = {}; this.cols.forEach(k => { o[k] = c[k]; }); return o; }); }
 

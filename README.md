@@ -1,6 +1,6 @@
 # PMS Platform (browser-only)
 
-A Super Admin dashboard and an Investor portal for monthly simple-interest plans (2%, 3.3% and 6%) with 6- and 12-month lock-ins, Dubai and Bangalore branches, brochures and Parva Realty properties.
+A Super Admin dashboard and an Investor portal for monthly simple-interest plans (2%, 3.3% and 6%) with 6- and 12-month lock-ins, Bangalore and Tumkur branches, brochures and Parva Realty properties.
 
 This version needs no backend, database service or keys. Everything runs in the browser:
 

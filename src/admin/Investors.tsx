@@ -137,16 +137,23 @@ export function BranchDialog({ ids, label, current, branches, onClose, onDone }:
         <option value="">No branch</option>{branches.map(b => <option key={b.id} value={b.id}>{b.name}{b.status !== 'active' ? ' (inactive)' : ''}</option>)}
       </select></Field>
       <Field label="Reason (saved to audit log) *" err={tried && !reason.trim() ? 'Enter a reason.' : null}>
-        <input className={'input ' + (tried && !reason.trim() ? 'bad' : '')} value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. Investor joined through the Dubai office" />
+        <input className={'input ' + (tried && !reason.trim() ? 'bad' : '')} value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. Investor joined through the Tumkur office" />
       </Field>
     </Modal>
   );
 }
 
+/** Super Admins who can be chosen as "Introduced by" (they receive the admin bonus). */
+type AdminLite = Pick<Profile, 'id' | 'code' | 'full_name' | 'email' | 'account_status'>;
+const loadAdmins = () => fetchAll<AdminLite>((a, b) => api.from('profiles').select('id, code, full_name, email, account_status').eq('role', 'super_admin').order('full_name').range(a, b));
+
 function AddInvestor({ onClose, onDone }: { onClose: () => void; onDone: (code: string) => void }) {
   const act = useAction();
+  const { profile: me } = useAuth();
   const bq = useQuery(loadBranches, []);
+  const aq = useQuery(loadAdmins, []);
   const [branch, setBranch] = useState('');
+  const [introducedBy, setIntroducedBy] = useState(me?.id || '');
   const [mode, setMode] = useState<'invite' | 'password'>('password');
   const [f, setF] = useState({ full_name: '', email: '', phone: '', city: '', address: '', id_number: '', bank_name: '', bank_account: '', bank_ifsc: '', password: '' });
   const [tried, setTried] = useState(false);
@@ -163,7 +170,7 @@ function AddInvestor({ onClose, onDone }: { onClose: () => void; onDone: (code: 
     const r = await act.run(() => createUser({
       mode, role: 'investor', email: f.email.trim().toLowerCase(), full_name: f.full_name.trim(), password: mode === 'password' ? f.password : undefined,
       phone: f.phone.trim(), city: f.city.trim(), address: f.address.trim(), id_number_masked: maskId(f.id_number), bank_name: f.bank_name.trim(),
-      bank_account_masked: maskId(f.bank_account), bank_ifsc: f.bank_ifsc.trim().toUpperCase()
+      bank_account_masked: maskId(f.bank_account), bank_ifsc: f.bank_ifsc.trim().toUpperCase(), introduced_by: introducedBy || null
     }), [mode === 'invite' ? 'Invitation sent' : 'Investor created', mode === 'invite' ? `${f.email.trim()} will receive a link to choose a password.` : 'Share the temporary password securely.']);
     if (r && branch) await act.run(() => rpc('admin_set_investor_branch', { p_ids: [r.id], p_branch: branch, p_reason: 'Branch set when the investor was added' }));
     if (r) { refreshAll(); onDone(r.code); }
@@ -183,7 +190,7 @@ function AddInvestor({ onClose, onDone }: { onClose: () => void; onDone: (code: 
         </div>
         <div className="f-row">
           <Field label="Full name *" err={tried ? errs.full_name : null}><input className={'input ' + (tried && errs.full_name ? 'bad' : '')} value={f.full_name} onChange={set('full_name')} placeholder="As on ID document" /></Field>
-          <Field label="Branch" hint="Dubai or Bangalore. You can change it later.">
+          <Field label="Branch" hint="Bangalore or Tumkur. You can change it later.">
             <select className="input" value={branch} onChange={e => setBranch(e.target.value)}>
               <option value="">Choose later</option>{(bq.data || []).filter(b => b.status === 'active').map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
@@ -193,6 +200,11 @@ function AddInvestor({ onClose, onDone }: { onClose: () => void; onDone: (code: 
           <Field label="Email *" err={tried ? errs.email : null}><input className={'input ' + (tried && errs.email ? 'bad' : '')} type="email" value={f.email} onChange={set('email')} /></Field>
           <Field label="Phone"><input className="input" value={f.phone} onChange={set('phone')} /></Field>
         </div>
+        <Field label="Introduced by (admin)" hint="The admin who brought this investor in. On the 6% plan they receive 2% as an admin bonus. The investor never sees this.">
+          <select className="input" value={introducedBy} onChange={e => setIntroducedBy(e.target.value)}>
+            {(aq.data || []).filter(a => a.account_status === 'active' || a.id === introducedBy).map(a => <option key={a.id} value={a.id}>{a.full_name || a.email}{a.code ? ' · ' + a.code : ''}</option>)}
+          </select>
+        </Field>
         {mode === 'password' && (
           <Field label="Temporary password *" err={tried ? errs.password : null} hint="At least 10 characters.">
             <input className={'input mono ' + (tried && errs.password ? 'bad' : '')} value={f.password} onChange={set('password')} autoComplete="new-password" />
@@ -216,25 +228,26 @@ function AddInvestor({ onClose, onDone }: { onClose: () => void; onDone: (code: 
 
 /* =============================== DETAIL =============================== */
 interface DetailData {
-  p: Profile; invs: Investment[]; bal: Map<string, Balance>; history: AuditLog[]; ledger: LedgerEntry[]; payouts: Payout[]; docs: DocumentRow[]; invCode: Record<string, string>; branches: Branch[];
+  p: Profile; invs: Investment[]; bal: Map<string, Balance>; history: AuditLog[]; ledger: LedgerEntry[]; payouts: Payout[]; docs: DocumentRow[]; invCode: Record<string, string>; branches: Branch[]; admins: AdminLite[];
 }
 
 async function loadDetail(code: string): Promise<DetailData | null> {
   const p = must(await api.from('profiles').select('*').eq('code', code).maybeSingle()) as Profile | null;
   if (!p || !(p as Profile).id) return null;
-  const [invs, history, ledger, docs, branches, pays] = await Promise.all([
+  const [invs, history, ledger, docs, branches, pays, admins] = await Promise.all([
     fetchAll<Investment>((a, b) => api.from('investments').select('*').eq('investor_id', p.id).order('created_at', { ascending: false }).range(a, b)),
     api.from('audit_logs').select('*').eq('entity_id', p.id).order('at', { ascending: false }).limit(30),
     api.from('ledger_entries').select('*').eq('investor_id', p.id).order('occurred_on', { ascending: false }).order('created_at', { ascending: false }).limit(12),
     api.from('documents').select('*').eq('owner_id', p.id).order('created_at', { ascending: false }),
     loadBranches(),
-    api.from('payouts').select('*').eq('investor_id', p.id).order('due_date', { ascending: false }).limit(24)
+    api.from('payouts').select('*').eq('investor_id', p.id).order('due_date', { ascending: false }).limit(24),
+    loadAdmins()
   ]);
   const ids = invs.map(i => i.id);
   const bal = ids.length ? must(await api.from('investment_balances').select('*').in('investment_id', ids)) as Balance[] : [];
   const invCode: Record<string, string> = {};
   invs.forEach(i => { invCode[i.id] = i.code; });
-  return { p, invs, bal: new Map(bal.map(b => [b.investment_id, b])), history: must(history) as AuditLog[], ledger: must(ledger) as LedgerEntry[], payouts: must(pays) as Payout[], docs: must(docs) as DocumentRow[], invCode, branches };
+  return { p, invs, bal: new Map(bal.map(b => [b.investment_id, b])), history: must(history) as AuditLog[], ledger: must(ledger) as LedgerEntry[], payouts: must(pays) as Payout[], docs: must(docs) as DocumentRow[], invCode, branches, admins };
 }
 
 type Dialog = null | 'kyc-verified' | 'kyc-rejected' | 'status' | 'edit' | 'upload' | 'branch' | 'password' | { del: DocumentRow };
@@ -254,7 +267,8 @@ export function InvestorDetail() {
     <><PageHead crumbs={['Investors', 'Not found']} title="Investor not found" />
       <Empty title="Investor not found">No investor has the code {code}. <Link to="/admin/investors">Back to investors</Link></Empty></>
   );
-  const { p, invs, bal, history, ledger, payouts, docs, invCode, branches } = q.data;
+  const { p, invs, bal, history, ledger, payouts, docs, invCode, branches, admins } = q.data;
+  const introducer = admins.find(a => a.id === p.introduced_by) || null;
   const live = invs.filter(i => LIVE.includes(i.status));
   const principal = live.reduce((x, i) => x + Number(i.principal), 0);
   const unlocked = live.filter(i => isUnlocked(i)).reduce((x, i) => x + Number(i.principal), 0);
@@ -284,7 +298,7 @@ export function InvestorDetail() {
         </>}>
         <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
           <div className="avatar" style={{ width: 52, height: 52, fontSize: 17 }}>{initials(p.full_name || p.email)}</div>
-          <div><h1>{p.full_name || p.email}</h1><p>{[p.code, p.email, branch ? branch.name + ' branch' : 'No branch', p.phone, p.city].filter(Boolean).join(' · ')}</p></div>
+          <div><h1>{p.full_name || p.email}</h1><p>{[p.code, p.email, branch ? branch.name + ' branch' : 'No branch', p.phone, p.city, p.role === 'investor' ? 'Introduced by ' + (introducer ? introducer.full_name || introducer.email : 'no admin') : ''].filter(Boolean).join(' · ')}</p></div>
         </div>
       </PageHead>
 
@@ -488,7 +502,8 @@ function ResetPassword({ p, onClose }: { p: Profile; onClose: () => void }) {
 
 function EditInvestor({ p, onClose }: { p: Profile; onClose: () => void }) {
   const act = useAction();
-  const init = { full_name: p.full_name, phone: p.phone, address: p.address, city: p.city, id_number_masked: p.id_number_masked, bank_name: p.bank_name, bank_account_masked: p.bank_account_masked, bank_ifsc: p.bank_ifsc };
+  const aq = useQuery(loadAdmins, []);
+  const init = { introduced_by: p.introduced_by || '', full_name: p.full_name, phone: p.phone, address: p.address, city: p.city, id_number_masked: p.id_number_masked, bank_name: p.bank_name, bank_account_masked: p.bank_account_masked, bank_ifsc: p.bank_ifsc };
   const [f, setF] = useState(init);
   const [reason, setReason] = useState('');
   const [tried, setTried] = useState(false);
@@ -501,7 +516,7 @@ function EditInvestor({ p, onClose }: { p: Profile; onClose: () => void }) {
     const patch: Record<string, string> = {};
     changed.forEach(k => {
       const v = f[k].trim();
-      patch[k] = k === 'id_number_masked' || k === 'bank_account_masked' ? maskId(v) : k === 'bank_ifsc' ? v.toUpperCase() : v;
+      patch[k] = k === 'introduced_by' ? f[k] : k === 'id_number_masked' || k === 'bank_account_masked' ? maskId(v) : k === 'bank_ifsc' ? v.toUpperCase() : v;
     });
     const r = await act.run(() => rpc('admin_update_investor', { p_id: p.id, p: patch, p_reason: reason.trim() }), ['Investor details saved', `${changed.length} field${changed.length === 1 ? '' : 's'} updated · recorded in audit log`]);
     if (r !== undefined) { refreshAll(); onClose(); }
@@ -511,6 +526,14 @@ function EditInvestor({ p, onClose }: { p: Profile; onClose: () => void }) {
       foot={<><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" onClick={save} disabled={act.busy || !changed.length}>Save changes</button></>}>
       <div className="form">
         <Field label="Full name *" err={tried ? errs.name : null}><input className="input" value={f.full_name} onChange={set('full_name')} /></Field>
+        {p.role === 'investor' && (
+          <Field label="Introduced by (admin)" hint="Receives the admin bonus. Unpaid bonuses move to the admin you choose. Hidden from the investor.">
+            <select className="input" value={f.introduced_by} onChange={set('introduced_by')}>
+              <option value="">No admin</option>
+              {(aq.data || []).filter(a => a.account_status === 'active' || a.id === f.introduced_by).map(a => <option key={a.id} value={a.id}>{a.full_name || a.email}{a.code ? ' · ' + a.code : ''}</option>)}
+            </select>
+          </Field>
+        )}
         <div className="f-row">
           <Field label="Phone"><input className="input" value={f.phone} onChange={set('phone')} /></Field>
           <Field label="City"><input className="input" value={f.city} onChange={set('city')} /></Field>

@@ -19,6 +19,8 @@ export interface Profile {
   id: string; role: Role; code: string | null; full_name: string; email: string; phone: string; address: string; city: string;
   id_number_masked: string; bank_name: string; bank_account_masked: string; bank_ifsc: string;
   kyc_status: KycStatus; account_status: AccountStatus; notify_email: boolean; branch_id: string | null; created_at: string; updated_at: string;
+  /** Investors only: the admin who brought the investor in and receives the admin bonus. Never shown to investors. */
+  introduced_by?: string | null;
 }
 
 export interface Branch { id: string; code: string; name: string; city: string; status: 'active' | 'inactive'; created_at: string; updated_at: string }
@@ -42,6 +44,13 @@ export interface Investment {
   expected_start: string | null; start_date: string | null; lockin_end_date: string | null; maturity_date: string | null;
   request_from_date: string | null; agreement_ref: string; deposit_ref: string; notes: string; cancelled_reason: string | null;
   created_by: string | null; created_at: string; activated_by: string | null; activated_at: string | null;
+  /** Admin view only. monthly_rate is the plan rate; investor_rate is what the investor earns (monthly_return); the rest is the admin bonus. */
+  investor_rate?: number; admin_bonus_rate?: number; admin_bonus?: number;
+}
+
+export interface AdminBonus {
+  id: string; code: string; investment_id: string; investor_id: string; admin_id: string | null; accrual_id: string; period_no: number; accrual_date: string;
+  rate: number; amount: number; status: 'accrued' | 'paid' | 'cancelled'; payment_ref: string | null; paid_on: string | null; paid_by: string | null; created_at: string; updated_at: string;
 }
 
 export interface Balance { investment_id: string; accrued: number; paid: number; processing: number; approved: number; unapproved: number; periods_accrued: number }

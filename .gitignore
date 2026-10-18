@@ -3,3 +3,8 @@ dist
 .env
 .env.local
 .vercel
+
+# voice notes and other audio
+*.ogg
+*.opus
+*.m4a

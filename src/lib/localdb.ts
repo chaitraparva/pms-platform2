@@ -2,6 +2,7 @@
 // On-device database. Tables live in memory and are saved to this browser's localStorage; uploaded
 // files (brochures, documents, photos) are too large for localStorage and are kept in IndexedDB.
 // Every money-moving action below follows the original database rules.
+import { splitRate, investorPlanName } from './format';
 
 type Row = Record<string, any>;
 interface Store { v: number; tables: Record<string, Row[]>; seq: Record<string, number>; users: { id: string; email: string; pw: string }[] }
@@ -41,7 +42,7 @@ export const files = {
 /* ---------- state ---------- */
 let S: Store;
 const TABLES = ['settings', 'profiles', 'branches', 'plans', 'plan_versions', 'investments', 'contract_amendments', 'accruals', 'payouts', 'ledger_entries',
-  'announcements', 'notifications', 'documents', 'audit_logs', 'brochures', 'brochure_views', 'properties'];
+  'announcements', 'notifications', 'documents', 'audit_logs', 'brochures', 'brochure_views', 'properties', 'admin_bonuses'];
 const listeners = new Set<(table: string) => void>();
 export const onChange = (f: (table: string) => void) => { listeners.add(f); return () => { listeners.delete(f); }; };
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -72,6 +73,14 @@ export const addDays = (s: string, n: number) => { const d = parse(s); d.setUTCD
 const diffDays = (a: string, b: string) => Math.round((parse(b).getTime() - parse(a).getTime()) / 86400000);
 const round2 = (x: number) => Math.round((x + Number.EPSILON) * 100) / 100;
 const monthlyReturn = (principal: number, rate: number) => round2(principal * rate / 100);
+/** Splits the plan rate between the investor and the admin who introduced them (6% = 4% investor + 2% admin bonus).
+ *  monthly_rate stays the plan rate; monthly_return is the investor's share; the total paid out never changes. */
+function applySplit(i: Row): Row {
+  const { investor, bonus } = splitRate(i.monthly_rate);
+  const total = monthlyReturn(Number(i.principal), Number(i.monthly_rate)), mine = monthlyReturn(Number(i.principal), investor);
+  return Object.assign(i, { investor_rate: investor, admin_bonus_rate: bonus, monthly_return: mine, admin_bonus: round2(total - mine) });
+}
+const investorRate = (i: Row) => Number(i.investor_rate ?? i.monthly_rate);
 const nextSeq = (k: string, start: number) => { S.seq[k] = (S.seq[k] ?? start - 1) + 1; return S.seq[k]; };
 const blank = (v: unknown) => v === undefined || v === null || (typeof v === 'string' && v.trim() === '');
 const str = (v: unknown, d = '') => (blank(v) ? d : String(v));
@@ -141,7 +150,7 @@ export function canRead(table: string, r: Row): boolean {
   const u = currentUid; if (!u) return false;
   const myInv = (id: string) => T('investments').some(i => i.id === id && i.investor_id === u);
   switch (table) {
-    case 'settings': case 'plans': case 'plan_versions': return true;
+    case 'settings': return true;
     case 'profiles': return r.id === u;
     case 'branches': return r.id === me()?.branch_id;
     case 'investments': return r.investor_id === u;
@@ -155,6 +164,16 @@ export function canRead(table: string, r: Row): boolean {
     case 'properties': return r.status === 'published';
     default: return false;
   }
+}
+/** What an investor sees of a row: the admin bonus split and who introduced them stay with the admins. */
+export function redact(table: string, r: Row): Row {
+  if (isAdmin() || (table !== 'investments' && table !== 'profiles')) return r;
+  const c: Row = { ...r };
+  if (table === 'investments') {
+    c.monthly_rate = investorRate(r); c.plan_name = investorPlanName(r.plan_name, r.monthly_rate);
+    delete c.investor_rate; delete c.admin_bonus_rate; delete c.admin_bonus;
+  } else delete c.introduced_by;
+  return c;
 }
 /** Only these tables accept direct inserts/deletes from the browser (as before). */
 export function canWrite(table: string): boolean { return isAdmin() && ['documents'].includes(table); }
@@ -172,8 +191,11 @@ function runAccrualsFor(i: Row, asOf: string): number {
     T('payouts').push({ id: uuid(), code: 'PAY-' + pad(nextSeq('payout', 1), 6), accrual_id: acc.id, investment_id: i.id, investor_id: i.investor_id, amount: Number(i.monthly_return), due_date: addDays(end, i.payout_lag_days), status: 'accrued',
       batch_ref: null, payment_ref: null, failure_reason: null, approved_by: null, approved_at: null, sent_by: null, sent_at: null, confirmed_by: null, confirmed_at: null, paid_on: null, updated_at: nowIso() });
     ledger({ investment_id: i.id, investor_id: i.investor_id, type: 'return_accrual', amount: Number(i.monthly_return), status: 'posted', occurred_on: end, reference: i.code + ' · period ' + k,
-      note: 'Monthly return ' + Number(i.monthly_rate).toFixed(2) + '% on ' + fmtMoney(i.principal), source_table: 'accruals', source_id: acc.id, created_by: null });
+      note: 'Monthly return ' + investorRate(i).toFixed(2) + '% on ' + fmtMoney(i.principal), source_table: 'accruals', source_id: acc.id, created_by: null });
     notify(i.investor_id, 'accrual', 'Return accrued on ' + i.code + ': ' + fmtMoney(i.monthly_return), 'Month ' + k + ' of ' + i.lockin_months + ' · not yet paid', '/portal/investments/' + i.code, 'accruals', acc.id);
+    if (Number(i.admin_bonus) > 0) T('admin_bonuses').push({ id: uuid(), code: 'BON-' + pad(nextSeq('bonus', 1), 6), investment_id: i.id, investor_id: i.investor_id,
+      admin_id: T('profiles').find(p => p.id === i.investor_id)?.introduced_by ?? null, accrual_id: acc.id, period_no: k, accrual_date: end, rate: Number(i.admin_bonus_rate),
+      amount: Number(i.admin_bonus), status: 'accrued', payment_ref: null, paid_on: null, paid_by: null, created_at: nowIso(), updated_at: nowIso() });
   }
   if (i.status === 'active' && i.maturity_date <= asOf) {
     i.status = 'matured'; i.updated_at = nowIso();
@@ -186,7 +208,7 @@ function runAccrualsFor(i: Row, asOf: string): number {
 /** The hourly job of the old server: run on load and every hour while the app is open. */
 export function runAllAccruals(asOf = today()): number {
   let n = 0; T('investments').forEach(i => { n += runAccrualsFor(i, asOf); });
-  if (n) persist('accruals', 'payouts', 'ledger_entries', 'notifications', 'investments');
+  if (n) persist('accruals', 'payouts', 'ledger_entries', 'notifications', 'investments', 'admin_bonuses');
   return n;
 }
 
@@ -241,12 +263,12 @@ function recordInvestment(a: Row) {
   const lock = Number(a.p_lockin_months);
   if (!pv.lockin_options.includes(lock) && !(pv.allow_custom_lockin && s.allow_custom_lockin && lock >= 1 && lock <= 120)) fail(`Lock-in of ${lock} months is not offered on this plan.`);
   const id = uuid(), code = 'INV-' + nextSeq('investment', 1001);
-  T('investments').push({ id, code, investor_id: inv!.id, plan_id: plan.id, plan_version_id: pv.id, plan_name: plan.name, plan_version: pv.version, monthly_rate: pv.monthly_rate,
+  T('investments').push(applySplit({ id, code, investor_id: inv!.id, plan_id: plan.id, plan_version_id: pv.id, plan_name: plan.name, plan_version: pv.version, monthly_rate: pv.monthly_rate,
     lockin_months: lock, early_redemption: pv.early_redemption, early_fee_pct: pv.early_fee_pct, payout_lag_days: pv.payout_lag_days,
     terms: pv.terms || s.default_terms, risk_disclosure: pv.risk_disclosure || s.default_risk_disclosure, principal, monthly_return: monthlyReturn(principal, pv.monthly_rate),
     status: 'pending_funding', expected_start: a.p_expected_start || null, start_date: null, lockin_end_date: null, maturity_date: null, request_from_date: null,
     agreement_ref: str(a.p_agreement_ref), deposit_ref: str(a.p_deposit_ref), notes: str(a.p_notes), cancelled_reason: null, created_by: currentUid, created_at: nowIso(),
-    activated_by: null, activated_at: null, updated_at: nowIso() });
+    activated_by: null, activated_at: null, updated_at: nowIso() }));
   ledger({ investment_id: id, investor_id: inv!.id, type: 'deposit', amount: principal, status: 'pending', occurred_on: a.p_expected_start || today(), reference: str(a.p_deposit_ref), note: 'Awaiting bank confirmation', source_table: 'investments', source_id: id });
   audit('investment.create', 'investment', id, code, 'Investment recorded', null, { principal, plan: plan.code, version: pv.version, rate: pv.monthly_rate, lockin_months: lock });
   return id;
@@ -262,7 +284,7 @@ function activateInvestment(id: string, start: string, ref: string, reason: stri
   Object.assign(v, { status: 'active', start_date: start, lockin_end_date: maturity, maturity_date: maturity, request_from_date: addDays(maturity, -settings().request_window_days), deposit_ref: ref, activated_by: currentUid, activated_at: nowIso(), updated_at: nowIso() });
   ledgerFor('investments', id, 'deposit').forEach(l => Object.assign(l, { status: 'confirmed', reference: ref, occurred_on: start, note: 'Deposit confirmed', updated_at: nowIso() }));
   ledger({ investment_id: id, investor_id: v.investor_id, type: 'allocation', amount: v.principal, status: 'posted', occurred_on: start, reference: v.agreement_ref, note: v.plan_name + ' v' + v.plan_version, source_table: 'investments', source_id: id });
-  notify(v.investor_id, 'investment_active', 'Investment ' + v.code + ' is active', fmtMoney(v.principal) + ' at ' + Number(v.monthly_rate).toFixed(2) + '% per month · matures ' + fmtDate(maturity), '/portal/investments/' + v.code, 'investments', id);
+  notify(v.investor_id, 'investment_active', 'Investment ' + v.code + ' is active', fmtMoney(v.principal) + ' at ' + investorRate(v).toFixed(2) + '% per month · matures ' + fmtDate(maturity), '/portal/investments/' + v.code, 'investments', id);
   audit('investment.activate', 'investment', id, v.code, reason || 'Deposit confirmed ' + ref, { status: 'pending_funding' }, { status: 'active', start_date: start, maturity_date: maturity });
   runAccrualsFor(v, today());
 }
@@ -416,7 +438,14 @@ export function rpcCall(fn: string, a: Row): unknown {
       requireAdmin(); if (blank(a.p_reason)) fail('A reason is required.');
       const p = T('profiles').find(x => x.id === a.p_id) || fail('Investor not found.'); const before = { ...p };
       ['full_name', 'phone', 'address', 'city', 'id_number_masked', 'bank_name', 'bank_account_masked', 'bank_ifsc'].forEach(k => { if (a.p?.[k] != null) p[k] = a.p[k]; });
-      p.updated_at = nowIso(); audit('investor.update', 'profile', p.id, p.code, a.p_reason, before, { ...p }); touched('profiles'); return null;
+      if (a.p && 'introduced_by' in a.p) {
+        const by = blank(a.p.introduced_by) ? null : String(a.p.introduced_by);
+        if (by && !T('profiles').some(x => x.id === by && x.role === 'super_admin')) fail('Choose a valid admin for "Introduced by".');
+        p.introduced_by = by;
+        // unpaid bonuses follow the admin who introduced the investor
+        T('admin_bonuses').forEach(b => { if (b.investor_id === p.id && b.status === 'accrued') { b.admin_id = by; b.updated_at = nowIso(); } });
+      }
+      p.updated_at = nowIso(); audit('investor.update', 'profile', p.id, p.code, a.p_reason, before, { ...p }); touched('profiles', 'admin_bonuses'); return null;
     }
     case 'admin_set_investor_status': {
       requireAdmin(); if (blank(a.p_reason)) fail('A reason is required.'); if (a.p_id === currentUid) fail('You cannot change your own account status.');
@@ -463,7 +492,7 @@ export function rpcCall(fn: string, a: Row): unknown {
       touched('plans', 'plan_versions'); return n;
     }
     case 'admin_record_investment': { const id = recordInvestment(a); touched('investments', 'ledger_entries'); return id; }
-    case 'admin_activate_investment': activateInvestment(a.p_id, a.p_start_date, a.p_deposit_ref, a.p_reason || ''); touched('investments', 'ledger_entries', 'accruals', 'payouts', 'notifications'); return null;
+    case 'admin_activate_investment': activateInvestment(a.p_id, a.p_start_date, a.p_deposit_ref, a.p_reason || ''); touched('investments', 'ledger_entries', 'accruals', 'payouts', 'notifications', 'admin_bonuses'); return null;
     case 'admin_cancel_investment': {
       requireAdmin(); if (blank(a.p_reason)) fail('A reason is required.');
       const v = T('investments').find(i => i.id === a.p_id) || fail('Investment not found.'); if (v.status !== 'pending_funding') fail('Only investments awaiting funding can be cancelled.');
@@ -496,9 +525,20 @@ export function rpcCall(fn: string, a: Row): unknown {
       const rev = { ...ac!, id: uuid(), kind: 'reversal', accrual_date: today(), amount: -ac!.amount, reverses_id: ac!.id, reason: a.p_reason, created_by: currentUid, created_at: nowIso() };
       T('accruals').push(rev);
       if (p) Object.assign(p, { status: 'cancelled', failure_reason: 'Accrual reversed: ' + a.p_reason, updated_at: nowIso() });
+      T('admin_bonuses').forEach(b => { if (b.accrual_id === ac!.id && b.status === 'accrued') Object.assign(b, { status: 'cancelled', updated_at: nowIso() }); });
       const code = T('investments').find(i => i.id === ac!.investment_id)?.code || '';
       ledger({ investment_id: ac!.investment_id, investor_id: p?.investor_id ?? null, type: 'reversal', amount: -ac!.amount, status: 'posted', occurred_on: today(), reference: code + ' · period ' + ac!.period_no, note: a.p_reason, source_table: 'accruals', source_id: rev.id });
-      audit('accrual.reverse', 'accrual', ac!.id, code + ' period ' + ac!.period_no, a.p_reason, { amount: ac!.amount }, { reversal: -ac!.amount }); touched('accruals', 'payouts', 'ledger_entries'); return null;
+      audit('accrual.reverse', 'accrual', ac!.id, code + ' period ' + ac!.period_no, a.p_reason, { amount: ac!.amount }, { reversal: -ac!.amount }); touched('accruals', 'payouts', 'ledger_entries', 'admin_bonuses'); return null;
+    }
+    case 'admin_pay_bonuses': {
+      requireAdmin(); const r = str(a.p_ref).trim(); if (!r) fail('Enter the bank reference for this payment.');
+      const rows = T('admin_bonuses').filter(b => (a.p_ids || []).includes(b.id));
+      if (!rows.length) fail('Select at least one bonus.');
+      if (rows.some(b => b.status !== 'accrued')) fail('Only unpaid bonuses can be marked as paid. Refresh and try again.');
+      if (rows.some(b => !b.admin_id)) fail('Some selected bonuses have no admin. Set "Introduced by" on the investor first.');
+      rows.forEach(b => Object.assign(b, { status: 'paid', payment_ref: r, paid_on: today(), paid_by: currentUid, updated_at: nowIso() }));
+      audit('bonus.paid', 'admin_bonus', null, rows.length + ' admin bonuses', r, { ids: a.p_ids }, { status: 'paid', reference: r, total: round2(rows.reduce((x, b) => x + Number(b.amount), 0)) });
+      touched('admin_bonuses'); return rows.length;
     }
     case 'admin_payouts_transition': { const n = payoutsTransition(a.p_ids, a.p_to, a.p_ref ?? null, a.p_reason ?? null); touched('payouts', 'ledger_entries', 'notifications'); return n; }
     case 'admin_save_announcement': {
@@ -583,7 +623,7 @@ export function rpcCall(fn: string, a: Row): unknown {
       return T('brochures').filter(b => brochureVisible(b.id, u)).map(b => {
         const v = T('brochure_views').find(x => x.brochure_id === b.id && x.user_id === u);
         return { id: b.id, code: b.code, title: b.title, description: b.description, storage_path: b.storage_path, file_name: b.file_name, mime: b.mime, plan_id: b.plan_id,
-          plan_name: T('plans').find(p => p.id === b.plan_id)?.name ?? null, publish_on: b.publish_on, starts_on: b.starts_on, ends_on: b.ends_on, seen: !!v, acknowledged: !!v?.acknowledged_at };
+          plan_name: planNameForInvestor(b.plan_id), publish_on: b.publish_on, starts_on: b.starts_on, ends_on: b.ends_on, seen: !!v, acknowledged: !!v?.acknowledged_at };
       }).sort((x, y) => y.publish_on.localeCompare(x.publish_on));
     }
     case 'mark_brochure_seen': {
@@ -609,6 +649,12 @@ export function rpcCall(fn: string, a: Row): unknown {
   return fail(`This action (${fn}) is not available.`);
 }
 
+function planNameForInvestor(planId: string | null): string | null {
+  const p = T('plans').find(x => x.id === planId); if (!p) return null;
+  const v = T('plan_versions').find(x => x.plan_id === p.id && x.version === p.current_version);
+  return v ? investorPlanName(p.name, v.monthly_rate) : p.name;
+}
+
 /* ---------- accounts ---------- */
 export async function createAccount(u: Row): Promise<{ id: string; code: string }> {
   requireAdmin();
@@ -619,8 +665,10 @@ export async function createAccount(u: Row): Promise<{ id: string; code: string 
   if (S.users.some(x => x.email === email)) fail('A user with this email already exists.');
   const id = uuid(); const admin = u.role === 'super_admin';
   S.users.push({ id, email, pw: await hash(u.password) });
+  const by = admin ? null : blank(u.introduced_by) ? currentUid : String(u.introduced_by);
+  if (by && !T('profiles').some(x => x.id === by && x.role === 'super_admin')) fail('Choose a valid admin for "Introduced by".');
   const code = admin ? 'ADM-' + nextSeq('admin', 1) : 'INVR-' + nextSeq('investor', 1001);
-  T('profiles').push(profileRow(id, email, String(u.full_name).trim(), code, admin ? 'super_admin' : 'investor', admin ? 'verified' : 'pending', u));
+  T('profiles').push(profileRow(id, email, String(u.full_name).trim(), code, admin ? 'super_admin' : 'investor', admin ? 'verified' : 'pending', { ...u, introduced_by: by }));
   audit(admin ? 'admin.create' : 'investor.create', 'profile', id, code, 'Created with temporary password', null, { email, full_name: u.full_name, role: admin ? 'super_admin' : 'investor' });
   persist('profiles', 'audit_logs');
   return { id, code };
@@ -642,13 +690,13 @@ export const userEmail = (id: string) => S.users.find(u => u.id === id)?.email |
 
 function profileRow(id: string, email: string, name: string, code: string, role: string, kyc: string, x: Row = {}): Row {
   return { id, role, code, full_name: name, email, phone: str(x.phone), address: str(x.address), city: str(x.city), id_number_masked: str(x.id_number_masked), bank_name: str(x.bank_name),
-    bank_account_masked: str(x.bank_account_masked), bank_ifsc: str(x.bank_ifsc), kyc_status: kyc, account_status: 'active', notify_email: true, branch_id: x.branch_id ?? null,
+    bank_account_masked: str(x.bank_account_masked), bank_ifsc: str(x.bank_ifsc), kyc_status: kyc, account_status: 'active', notify_email: true, branch_id: x.branch_id ?? null, introduced_by: role === 'investor' ? (x.introduced_by ?? null) : null,
     created_at: x.created_at || nowIso(), updated_at: nowIso() };
 }
 
 /* ---------- first run: Parva Realty setup plus a small set of sample investors ---------- */
 async function seed(): Promise<Store> {
-  S = { v: 1, tables: Object.fromEntries(TABLES.map(t => [t, []])), seq: {}, users: [] };
+  S = { v: 2, tables: Object.fromEntries(TABLES.map(t => [t, []])), seq: {}, users: [] };
   T('settings').push({ id: 1, company_name: 'Parva Realty', tagline: 'Every investment, return and maturity in one place.', logo_url: null, primary_color: '#0F2147', currency: 'INR', locale: 'en-IN',
     timezone: 'Asia/Kolkata', approaching_days: 60, request_window_days: 30, default_payout_lag_days: 3, four_eyes: true, allow_custom_lockin: false, lockin_options: [6, 12],
     default_terms: 'Returns are simple interest on the original principal at the monthly rate in this agreement. Unpaid returns are not added to principal.',
@@ -658,7 +706,7 @@ async function seed(): Promise<Store> {
   S.users.push({ id: adminId, email: ADMIN_EMAIL, pw: await hash(ADMIN_PASSWORD) });
   T('profiles').push(profileRow(adminId, ADMIN_EMAIL, 'Chaitra', 'ADM-' + nextSeq('admin', 1), 'super_admin', 'verified', { created_at: addMonths(today(), -13) + 'T09:00:00Z' }));
   currentUid = adminId;
-  const br = ([['DXB', 'Dubai'], ['BLR', 'Bangalore']] as [string, string][]).map(([code, name]) => { const id = uuid(); T('branches').push({ id, code, name, city: name, status: 'active', created_by: adminId, created_at: nowIso(), updated_at: nowIso() }); return id; });
+  const br = ([['TMK', 'Tumkur'], ['BLR', 'Bangalore']] as [string, string][]).map(([code, name]) => { const id = uuid(); T('branches').push({ id, code, name, city: name, status: 'active', created_by: adminId, created_at: nowIso(), updated_at: nowIso() }); return id; });
   const start = addMonths(today(), -12);
   const plans = ([['P2', '2% Monthly Plan', 2], ['P33', '3.3% Monthly Plan', 3.3], ['P6', '6% Monthly Plan', 6]] as [string, string, number][]).map(([code, name, rate]) => {
     const id = createPlan(code, name, `Simple monthly return of ${rate}% on the original principal, paid monthly.`, { monthly_rate: rate, min_amount: 100000, max_amount: 50000000, lockin_options: [6, 12], eligible_from: start, effective_from: start });
@@ -667,15 +715,15 @@ async function seed(): Promise<Store> {
 
   // Sample investors (the first one has a login so the investor portal can be tried).
   const people: [string, string, string, number][] = [
-    ['Ananya Rao', INVESTOR_EMAIL, 'Bangalore', 1], ['Rahul Menon', 'rahul.menon@example.com', 'Bangalore', 1], ['Fatima Shaikh', 'fatima.shaikh@example.com', 'Dubai', 0],
-    ['Vikram Iyer', 'vikram.iyer@example.com', 'Dubai', 0], ['Meera Kapoor', 'meera.kapoor@example.com', 'Bangalore', 1], ['Arjun Nair', 'arjun.nair@example.com', 'Dubai', 0],
-    ['Sana Qureshi', 'sana.qureshi@example.com', 'Bangalore', 1], ['Kavya Reddy', 'kavya.reddy@example.com', 'Dubai', 0]
+    ['Ananya Rao', INVESTOR_EMAIL, 'Bangalore', 1], ['Rahul Menon', 'rahul.menon@example.com', 'Bangalore', 1], ['Fatima Shaikh', 'fatima.shaikh@example.com', 'Tumkur', 0],
+    ['Vikram Iyer', 'vikram.iyer@example.com', 'Tumkur', 0], ['Meera Kapoor', 'meera.kapoor@example.com', 'Bangalore', 1], ['Arjun Nair', 'arjun.nair@example.com', 'Tumkur', 0],
+    ['Sana Qureshi', 'sana.qureshi@example.com', 'Bangalore', 1], ['Kavya Reddy', 'kavya.reddy@example.com', 'Tumkur', 0]
   ];
   const ids = await Promise.all(people.map(async ([name, email, city, b], i) => {
     const id = uuid();
     S.users.push({ id, email, pw: await hash(i === 0 ? INVESTOR_PASSWORD : uuid()) });
     T('profiles').push(profileRow(id, email, name, 'INVR-' + nextSeq('investor', 1001), 'investor', i === 7 ? 'pending' : 'verified',
-      { city, phone: '+91 98450 ' + String(10000 + i * 1373).slice(-5), branch_id: br[b], bank_name: ['HDFC', 'ICICI', 'SBI', 'Axis'][i % 4], bank_account_masked: '••••' + (4021 + i * 37), bank_ifsc: ['HDFC0001234', 'ICIC0004567', 'SBIN0007890', 'UTIB0001122'][i % 4], created_at: addMonths(today(), -12 + i) + 'T10:00:00Z' }));
+      { city, phone: '+91 98450 ' + String(10000 + i * 1373).slice(-5), branch_id: br[b], bank_name: ['HDFC', 'ICICI', 'SBI', 'Axis'][i % 4], bank_account_masked: '••••' + (4021 + i * 37), bank_ifsc: ['HDFC0001234', 'ICIC0004567', 'SBIN0007890', 'UTIB0001122'][i % 4], introduced_by: adminId, created_at: addMonths(today(), -12 + i) + 'T10:00:00Z' }));
     return id;
   }));
   // [investor, plan, lock-in, principal, months ago it started]
@@ -696,6 +744,7 @@ async function seed(): Promise<Store> {
       ledger({ investment_id: p.investment_id, investor_id: p.investor_id, type: 'return_payout', amount: p.amount, status: 'confirmed', occurred_on: p.paid_on, reference: p.payment_ref, note: p.code, source_table: 'payouts', source_id: p.id }); }
     else if (age > 5) Object.assign(p, { status: 'approved', approved_by: adminId, approved_at: nowIso() });
   });
+  T('admin_bonuses').forEach(b => { const p = T('payouts').find(x => x.accrual_id === b.accrual_id); if (p?.status === 'paid') Object.assign(b, { status: 'paid', payment_ref: p.payment_ref, paid_on: p.paid_on, paid_by: adminId }); });
   T('notifications').forEach(n => { if (n.created_at && diffDays(n.created_at.slice(0, 10), t) >= 0) n.read_at = T('payouts').find(p => p.accrual_id === n.source_id)?.status === 'paid' ? nowIso() : null; });
   T('properties').push(...parvaProperties(adminId));
   T('audit_logs').forEach(l => { l.actor_name = 'Chaitra'; });
@@ -757,10 +806,22 @@ export function ready(): Promise<void> {
       const props = T('properties');
       if (props.length <= 2 && props.every(x => ['Parva Residences, Business Bay', 'Parva Villas, Tumkur Road'].includes(x.title))) { S.tables.properties = parvaProperties(null); save(); }
       T('properties').forEach(x => { if (!x.image_url && PARVA_IMG[x.title] && x.url === PARVA_URL) { x.image_url = PARVA_IMG[x.title]; save(); } });
-      // the second branch is Dubai (it was Tumkur in earlier versions)
-      T('branches').forEach(b => { if (b.code === 'TMK' || b.name === 'Tumkur') { Object.assign(b, { code: 'DXB', name: 'Dubai', city: 'Dubai', updated_at: nowIso() }); save(); } });
-      T('profiles').forEach(x => { if (x.city === 'Tumkur') { x.city = 'Dubai'; save(); } });
+      // the branches are Bangalore and Tumkur (the Dubai branch of earlier versions becomes Tumkur, investors and history stay with it)
+      T('branches').forEach(b => { if (b.code === 'DXB' || b.name === 'Dubai') { Object.assign(b, { code: 'TMK', name: 'Tumkur', city: 'Tumkur', updated_at: nowIso() }); save(); } });
+      T('profiles').forEach(x => { if (x.city === 'Dubai') { x.city = 'Tumkur'; save(); } });
       const st = settings(); if (st && ['#1C2B4A', '#0B1F3F', '#121212'].includes(st.primary_color)) { st.primary_color = '#0F2147'; save(); }
+      // v2: admin bonus split. Investors get "introduced by" (the admin who created them) and every investment gets its split;
+      // returns already accrued stay as they were, the new split applies from the next month.
+      if ((S.v || 1) < 2) {
+        const admins = new Set(T('profiles').filter(p => p.role === 'super_admin').map(p => p.id));
+        T('profiles').forEach(x => {
+          if (x.role !== 'investor' || x.introduced_by !== undefined) return;
+          const by = T('audit_logs').find(l => l.action === 'investor.create' && l.entity_id === x.id)?.actor_id || T('investments').find(i => i.investor_id === x.id && i.created_by)?.created_by || null;
+          x.introduced_by = by && admins.has(by) ? by : null;
+        });
+        T('investments').forEach(i => { if (i.investor_rate === undefined) applySplit(i); });
+        S.v = 2; save();
+      }
     }
     else { S = await seed(); save(); }
     runAllAccruals();

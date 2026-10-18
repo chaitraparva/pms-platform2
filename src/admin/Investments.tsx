@@ -5,7 +5,7 @@ import { useQuery, refreshAll } from '../lib/useQuery';
 import { useAuth, useSettings } from '../lib/auth';
 import { uploadDocument, openDocument, deleteDocument } from '../lib/docs';
 import { downloadCsv } from '../lib/csv';
-import { money, date, dateShort, dateTime, rate, today, addMonths, daysBetween, monthlyReturn, investmentLabel, isUnlocked, lockinText, rateShort, LEDGER_TYPE } from '../lib/format';
+import { money, date, dateShort, dateTime, rate, today, addMonths, daysBetween, splitRate, splitReturn, investmentLabel, isUnlocked, lockinText, rateShort, LEDGER_TYPE } from '../lib/format';
 import type { Investment, Balance, Branch, Profile, Plan, PlanVersion, Accrual, Payout, LedgerEntry } from '../lib/types';
 import { DataTable, Col } from '../ui/DataTable';
 import { Kpi, Empty, ErrorNote, Loading, PageHead, InvBadge, PayBadge, LedgerBadge, Badge, Drawer, Modal, Field, useAction } from '../ui/kit';
@@ -185,7 +185,9 @@ function RecordInvestment({ preInvestor, onClose, onDone }: { preInvestor: strin
   };
   const bad = Object.values(errs).some(Boolean);
   const e = (k: string) => (tried ? errs[k] : null);
-  const mr = pv && amt > 0 ? monthlyReturn(amt, Number(pv.monthly_rate)) : 0;
+  const split = pv ? splitRate(pv.monthly_rate) : null;
+  const sr = pv && amt > 0 ? splitReturn(amt, pv.monthly_rate) : null;
+  const mr = sr ? sr.investor : 0;
   const maturity = start && months > 0 ? addMonths(start, months) : null;
 
   const save = async () => {
@@ -255,8 +257,10 @@ function RecordInvestment({ preInvestor, onClose, onDone }: { preInvestor: strin
             <div className="card-h"><h3>Calculated terms</h3><div className="r">final figures are calculated by the server</div></div>
             <div className="card-b">
               <dl className="kv">
-                <dt>Contract rate</dt><dd>{pv ? rate(pv.monthly_rate) : '—'}</dd>
-                <dt>Monthly return</dt><dd>{mr ? money(mr) : '—'}</dd>
+                <dt>Plan rate</dt><dd>{pv ? rate(pv.monthly_rate) : '—'}</dd>
+                {split && split.bonus > 0 && <><dt>Investor ROI</dt><dd>{rate(split.investor)} <span className="muted">(what the investor sees)</span></dd>
+                  <dt>Admin bonus</dt><dd>{rate(split.bonus)}{sr ? ' · ' + money(sr.bonus) + ' / month' : ''} <span className="muted">to the admin who introduced the investor</span></dd></>}
+                <dt>Investor monthly return</dt><dd>{mr ? money(mr) : '—'}</dd>
                 <dt>First accrual</dt><dd>{start ? date(addMonths(start, 1)) : '—'}</dd>
                 <dt>Lock-in end / maturity</dt><dd>{maturity ? date(maturity) : '—'}</dd>
                 <dt>Total return over lock-in</dt><dd>{mr && months > 0 ? money(Math.round(mr * months * 100) / 100) : '—'}</dd>
@@ -366,7 +370,8 @@ export function InvestmentDetail() {
 
       <div className="kpis">
         <Kpi label="Principal" value={money(i.principal)} sub="Original, never changes" />
-        <Kpi label="Monthly return" value={money(i.monthly_return)} sub={`${rate(i.monthly_rate)} × principal`} />
+        <Kpi label="Investor monthly return" value={money(i.monthly_return)}
+          sub={Number(i.admin_bonus || 0) > 0 ? `${rate(i.investor_rate ?? i.monthly_rate)} · + ${money(i.admin_bonus)} admin bonus (${rate(i.admin_bonus_rate || 0)})` : `${rate(i.monthly_rate)} × principal`} />
         <Kpi label="Accrued to date" value={money(bal?.accrued || 0)} sub={`${bal?.periods_accrued || 0} of ${i.lockin_months} periods`} tip="Sum of accrual entries, net of reversals." />
         <Kpi label="Paid (confirmed)" value={money(bal?.paid || 0)} cls="pos" sub={`${paidCount} payout${paidCount === 1 ? '' : 's'}`} />
         <Kpi label="Outstanding" value={money(outstanding)} sub={Number(bal?.processing || 0) ? `${money(bal!.processing)} processing` : 'Accrued, not yet paid'} subCls={outstanding ? 'warn' : ''} />
@@ -440,12 +445,14 @@ export function InvestmentDetail() {
             <div className="card-h"><h3>Contractual terms snapshot</h3><div className="r mono">{i.plan_name} v{i.plan_version}</div></div>
             <div className="card-b">
               <dl className="kv">
-                <dt>Monthly ROI</dt><dd>{rate(i.monthly_rate)}</dd>
+                <dt>Plan rate</dt><dd>{rate(i.monthly_rate)}</dd>
+                {Number(i.admin_bonus || 0) > 0 && <><dt>Investor ROI</dt><dd>{rate(i.investor_rate ?? i.monthly_rate)} <span className="muted">(shown to the investor)</span></dd>
+                  <dt>Admin bonus</dt><dd>{rate(i.admin_bonus_rate || 0)} · {money(i.admin_bonus)} / month</dd></>}
                 <dt>Method</dt><dd>Simple interest</dd>
                 <dt>Plan</dt><dd>{plan ? <Link to={'/admin/plans/' + plan.code}>{i.plan_name}</Link> : i.plan_name} · v{i.plan_version}</dd>
                 <dt>Lock-in</dt><dd>{lockinText(i.lockin_months)}</dd>
                 <dt>Principal</dt><dd>{money(i.principal)}</dd>
-                <dt>Monthly return</dt><dd>{money(i.monthly_return)}</dd>
+                <dt>Investor monthly return</dt><dd>{money(i.monthly_return)}</dd>
                 <dt>Total over lock-in</dt><dd>{money(Math.round(Number(i.monthly_return) * i.lockin_months * 100) / 100)}</dd>
                 <dt>Payout lag</dt><dd>{i.payout_lag_days} day{i.payout_lag_days === 1 ? '' : 's'} after accrual</dd>
                 <dt>Agreement</dt><dd className="mono">{i.agreement_ref || '—'}</dd>

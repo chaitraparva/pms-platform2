@@ -120,3 +120,26 @@ export const LEDGER_TYPE: Record<string, string> = {
   deposit: 'Deposit', allocation: 'Investment allocation', return_accrual: 'Return accrued', return_payout: 'Return payout',
   redemption_request: 'Principal request (closed)', principal_redemption: 'Principal repaid', refund: 'Refund', adjustment: 'Adjustment', fee: 'Fee', reversal: 'Reversal'
 };
+
+/* ---------- admin bonus split ----------
+   On these plans part of the monthly rate goes to the admin who introduced the investor instead of the investor.
+   The total paid out stays the plan rate: 6% plan = 4% to the investor + 2% bonus to the introducing admin. */
+export const ADMIN_BONUS_SPLIT: Record<string, number> = { '6': 2 };
+/** The investor's share and the admin's bonus share of a plan's monthly rate. */
+export function splitRate(planRate: number | string): { investor: number; bonus: number } {
+  const r = Number(planRate), bonus = ADMIN_BONUS_SPLIT[String(r)] || 0;
+  return { investor: Math.round((r - bonus) * 10000) / 10000, bonus };
+}
+/** Monthly amounts of the split. Investor + bonus always equals the full plan return. */
+export function splitReturn(principal: number, planRate: number | string): { total: number; investor: number; bonus: number } {
+  const { investor } = splitRate(planRate);
+  const total = monthlyReturn(principal, Number(planRate)), mine = monthlyReturn(principal, investor);
+  return { total, investor: mine, bonus: Math.round((total - mine) * 100) / 100 };
+}
+/** The plan name an investor sees, e.g. "6% Monthly Plan" becomes "4% Monthly Plan" on a split plan. */
+export function investorPlanName(name: string, planRate: number | string): string {
+  const { investor, bonus } = splitRate(planRate);
+  if (!bonus || !name) return name;
+  const esc = String(Number(planRate)).replace('.', '\\.');
+  return name.replace(new RegExp('(^|[^\\d.])' + esc + '(?:\\.0+)?\\s*%', 'g'), '$1' + investor + '%');
+}
