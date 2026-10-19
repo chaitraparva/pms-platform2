@@ -15,6 +15,7 @@ import { BrochureGate } from './Brochures';
 import { Documents } from './Documents';
 import { Statement } from './Statement';
 import { Announcements } from './Announcements';
+import { MyNetwork } from './Network';
 
 export default function PortalApp() {
   const nav = useNavigate();
@@ -27,6 +28,7 @@ export default function PortalApp() {
   const items: NavItem[] = [
     { group: 'Portfolio' }, { to: '/portal', label: 'Overview', icon: 'home' }, { to: '/portal/investments', label: 'My Investments', icon: 'invest' },
     { to: '/portal/returns', label: 'ROI Released', icon: 'roi' },
+    ...(profile?.can_introduce ? [{ to: '/portal/network', label: 'My Investors', icon: 'users' } as NavItem] : []),
     { to: '/portal/properties', label: 'Explore Properties', icon: 'building' },
     { to: '/portal/announcements', label: 'Announcements', icon: 'announce', count: counts.data?.announcements },
     { group: 'Account' }, { to: '/portal/profile', label: 'Profile & Security', icon: 'user' }
@@ -45,6 +47,7 @@ export default function PortalApp() {
         <Route path="documents" element={<Documents />} />
         <Route path="statement" element={<Statement />} />
         <Route path="announcements" element={<Announcements />} />
+        <Route path="network" element={<MyNetwork page />} />
         <Route path="notifications" element={<Notifications />} />
         <Route path="profile" element={<ProfileSecurity />} />
         <Route path="*" element={<Overview />} />

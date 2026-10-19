@@ -12,6 +12,8 @@ export const ADMIN_EMAIL = 'chaitra@parvarealty.ae';
 export const ADMIN_PASSWORD = 'Parva@2026';
 export const INVESTOR_EMAIL = 'ananya.rao@example.com';
 export const INVESTOR_PASSWORD = 'Investor@2026';
+/** A sample investor introduced by Ananya (she has the right to add investors). Same password as Ananya. */
+export const LOWER_INVESTOR_EMAIL = 'rahul.menon@example.com';
 /** Password of the sample introducer admins (Ravi, Priya, Suresh). */
 export const INTRODUCER_PASSWORD = 'Admin@2026';
 
@@ -100,6 +102,8 @@ export const setCurrentUser = (id: string | null) => { currentUid = id; };
 export const uid = () => currentUid;
 export const me = () => T('profiles').find(p => p.id === currentUid) || null;
 export const isAdmin = () => { const p = me(); return !!p && p.role === 'super_admin' && p.account_status === 'active'; };
+/** Who can be "Introduced by" and receive the bonus: a Super Admin, or an investor the Super Admin allowed to add investors. */
+const canBeIntroducer = (id: string) => T('profiles').some(x => x.id === id && (x.role === 'super_admin' || (x.role === 'investor' && x.can_introduce)));
 const requireAdmin = () => { if (!isAdmin()) fail('Only an active Super Admin can do this.'); return currentUid!; };
 const actorName = (id: string | null) => { const p = T('profiles').find(x => x.id === id); return p ? (p.full_name || p.email) : 'System'; };
 const settings = () => T('settings')[0];
@@ -125,7 +129,10 @@ function ledger(e: Row) {
   T('ledger_entries').push(row); return row;
 }
 const ledgerFor = (table: string, id: string, type?: string) => T('ledger_entries').filter(l => l.source_table === table && l.source_id === id && (!type || l.type === type));
+/** True while the first-run sample data is being written (the four-eyes rule does not apply to it). */
+let seeding = false;
 const fourEyes = (prev: string | null, what: string) => {
+  if (seeding) return;
   const admins = T('profiles').filter(p => p.role === 'super_admin' && p.account_status === 'active').length;
   if (settings().four_eyes && admins > 1 && prev && prev === currentUid) fail(`A different Super Admin must ${what}. You performed the previous step.`);
 };
@@ -247,12 +254,13 @@ function setPlanStatus(id: string, status: string, reason: string) {
 }
 
 /* ---------- investments ---------- */
-function recordInvestment(a: Row) {
-  requireAdmin();
+function recordInvestment(a: Row, byIntroducer = false) {
+  if (!byIntroducer) requireAdmin();
   const s = settings();
   const inv = T('profiles').find(p => p.id === a.p_investor);
   if (!inv || inv.role !== 'investor') fail('Choose a valid investor.');
-  if (inv!.kyc_status !== 'verified') fail(`${inv!.full_name} is not verified yet. Verify KYC before recording an investment.`);
+  // an investment added by an introducing investor waits for the Super Admin to verify KYC and confirm the deposit
+  if (!byIntroducer && inv!.kyc_status !== 'verified') fail(`${inv!.full_name} is not verified yet. Verify KYC before recording an investment.`);
   if (inv!.account_status !== 'active') fail(`${inv!.full_name} has a suspended account.`);
   const plan = T('plans').find(p => p.id === a.p_plan) || fail('Plan not found.');
   if (plan.status !== 'active') fail(`Plan ${plan.name} is not active.`);
@@ -272,13 +280,15 @@ function recordInvestment(a: Row) {
     agreement_ref: str(a.p_agreement_ref), deposit_ref: str(a.p_deposit_ref), notes: str(a.p_notes), cancelled_reason: null, created_by: currentUid, created_at: nowIso(),
     activated_by: null, activated_at: null, updated_at: nowIso() }));
   ledger({ investment_id: id, investor_id: inv!.id, type: 'deposit', amount: principal, status: 'pending', occurred_on: a.p_expected_start || today(), reference: str(a.p_deposit_ref), note: 'Awaiting bank confirmation', source_table: 'investments', source_id: id });
-  audit('investment.create', 'investment', id, code, 'Investment recorded', null, { principal, plan: plan.code, version: pv.version, rate: pv.monthly_rate, lockin_months: lock });
+  audit('investment.create', 'investment', id, code, byIntroducer ? 'Investment added by the introducing investor' : 'Investment recorded', null, { principal, plan: plan.code, version: pv.version, rate: pv.monthly_rate, lockin_months: lock });
   return id;
 }
 function activateInvestment(id: string, start: string, ref: string, reason: string) {
   requireAdmin();
   const v = T('investments').find(i => i.id === id) || fail('Investment not found.');
   if (v.status !== 'pending_funding') fail(`${v.code} is already ${v.status}.`);
+  const who = T('profiles').find(p => p.id === v.investor_id);
+  if (who && who.kyc_status !== 'verified') fail(`Verify ${who.full_name || 'the investor'}’s KYC before confirming this deposit.`);
   fourEyes(v.created_by, 'confirm this deposit');
   if (!start || start > today()) fail('Start date must be today or earlier (the date funds were received).');
   if (blank(ref)) fail('Enter the bank reference for the deposit.');
@@ -423,6 +433,15 @@ export function rpcCall(fn: string, a: Row): unknown {
       const u = currentUid; if (!u) return null; const r = ranking(null); const me2 = r.rows.find(x => x.id === u);
       return me2 ? { rank: me2.rank, total: r.total, multiple: me2.multiple, branch: me2.branch, branch_rank: me2.branch_rank, branch_total: me2.branch_total } : null;
     }
+    case 'admin_set_can_introduce': {
+      requireAdmin(); const p = T('profiles').find(x => x.id === a.p_id) || fail('Investor not found.');
+      if (p.role !== 'investor') fail('Only investors can be given this right. Super Admins can already add investors.');
+      const before = !!p.can_introduce; p.can_introduce = !!a.p_value; p.updated_at = nowIso();
+      if (p.can_introduce && !before) notify(p.id, 'can_introduce', 'You can now add investors', 'Add investors from your Overview. You earn a bonus on every investment they make.', '/portal/network', 'profiles_introduce', uuid());
+      audit('investor.can_introduce', 'profile', p.id, p.code, str(a.p_reason, p.can_introduce ? 'Allowed to add investors' : 'Right to add investors removed'), { can_introduce: before }, { can_introduce: p.can_introduce });
+      touched('profiles', 'notifications'); return null;
+    }
+    case 'my_network': return myNetwork();
     case 'admin_dashboard': runAllAccruals(); return dashboard(a.p_branch || null, a.p_from || null, a.p_to || null);
     case 'admin_save_settings': {
       requireAdmin(); const p = a.p || {}; const s = settings(); const before = { ...s };
@@ -442,7 +461,7 @@ export function rpcCall(fn: string, a: Row): unknown {
       ['full_name', 'phone', 'address', 'city', 'id_number_masked', 'bank_name', 'bank_account_masked', 'bank_ifsc'].forEach(k => { if (a.p?.[k] != null) p[k] = a.p[k]; });
       if (a.p && 'introduced_by' in a.p) {
         const by = blank(a.p.introduced_by) ? null : String(a.p.introduced_by);
-        if (by && !T('profiles').some(x => x.id === by && x.role === 'super_admin')) fail('Choose a valid admin for "Introduced by".');
+        if (by && !canBeIntroducer(by)) fail('Choose a valid person for "Introduced by".');
         p.introduced_by = by;
         // unpaid bonuses follow the admin who introduced the investor
         T('admin_bonuses').forEach(b => { if (b.investor_id === p.id && b.status === 'accrued') { b.admin_id = by; b.updated_at = nowIso(); } });
@@ -657,6 +676,67 @@ function planNameForInvestor(planId: string | null): string | null {
   return v ? investorPlanName(p.name, v.monthly_rate) : p.name;
 }
 
+/* ---------- investors who bring in investors ---------- */
+/** What an introducing investor sees: the investors they brought in, those investors' investments and the bonus earned from them.
+ *  Nothing else: no bank or ID details, no payouts or ledgers of the other investors. */
+function myNetwork(): Row | null {
+  const u = currentUid; const mePr = me(); if (!u || !mePr || mePr.role !== 'investor') return null;
+  const people = T('profiles').filter(p => p.role === 'investor' && p.introduced_by === u);
+  const bonuses = T('admin_bonuses').filter(b => b.admin_id === u && b.status !== 'cancelled');
+  const sumB = (f: (b: Row) => boolean) => round2(bonuses.filter(f).reduce((s, b) => s + Number(b.amount), 0));
+  const investors = people.map(p => ({
+    id: p.id, code: p.code, name: p.full_name, email: p.email, phone: p.phone, city: p.city, kyc_status: p.kyc_status, account_status: p.account_status, created_at: p.created_at,
+    investments: T('investments').filter(i => i.investor_id === p.id && i.status !== 'cancelled').sort((x, y) => String(y.created_at).localeCompare(String(x.created_at))).map(i => ({
+      id: i.id, code: i.code, plan_name: investorPlanName(i.plan_name, i.monthly_rate), principal: Number(i.principal), investor_rate: investorRate(i), bonus_rate: Number(i.admin_bonus_rate || 0),
+      bonus_monthly: Number(i.admin_bonus || 0), status: i.status, start_date: i.start_date, maturity_date: i.maturity_date, lockin_months: i.lockin_months, created_at: i.created_at,
+      bonus_earned: sumB(b => b.investment_id === i.id), bonus_paid: sumB(b => b.investment_id === i.id && b.status === 'paid')
+    }))
+  }));
+  const names = new Map(people.map(p => [p.id, p])), codes = new Map(T('investments').map(i => [i.id, i.code]));
+  const plans = T('plans').filter(p => p.status === 'active').map(p => {
+    const v = T('plan_versions').filter(x => x.plan_id === p.id && x.effective_from <= today()).sort((x, y) => y.version - x.version)[0];
+    if (!v) return null;
+    const sp = splitRate(v.monthly_rate);
+    return { id: p.id, name: p.name, rate: Number(v.monthly_rate), investor_rate: sp.investor, bonus_rate: sp.bonus, min_amount: Number(v.min_amount), max_amount: Number(v.max_amount), lockin_options: v.lockin_options };
+  }).filter(Boolean);
+  return {
+    can_introduce: !!mePr.can_introduce, investors, plans,
+    bonuses: bonuses.sort((x, y) => String(y.accrual_date).localeCompare(String(x.accrual_date))).map(b => ({
+      id: b.id, code: b.code, investor_name: names.get(b.investor_id)?.full_name || '', investor_code: names.get(b.investor_id)?.code || '', investment_code: codes.get(b.investment_id) || '',
+      period_no: b.period_no, accrual_date: b.accrual_date, rate: Number(b.rate), amount: Number(b.amount), status: b.status, paid_on: b.paid_on
+    }))
+  };
+}
+/** An investor with the right to add investors creates a new investor and their first investment.
+ *  The new investor starts unverified and the investment waits for the Super Admin to confirm the deposit. */
+export async function introduceInvestor(u: Row): Promise<{ code: string; investment: string }> {
+  const mePr = me();
+  if (!mePr || mePr.role !== 'investor' || mePr.account_status !== 'active' || !mePr.can_introduce) fail('You do not have permission to add investors. Ask the Super Admin.');
+  const email = String(u.email || '').trim().toLowerCase(), name = String(u.full_name || '').trim();
+  if (!name) fail('Enter the investor’s full name.');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) fail('Enter a valid email address.');
+  if (blank(u.phone)) fail('Enter a phone number.');
+  if (String(u.password || '').length < 10) fail('Temporary password must be at least 10 characters.');
+  if (S.users.some(x => x.email === email)) fail('Someone with this email is already registered.');
+  const plan = T('plans').find(p => p.id === u.plan && p.status === 'active') || fail('Choose a plan.');
+  const id = uuid(), code = 'INVR-' + nextSeq('investor', 1001);
+  S.users.push({ id, email, pw: await hash(String(u.password)) });
+  T('profiles').push(profileRow(id, email, name, code, 'investor', 'pending', { phone: u.phone, city: u.city, branch_id: mePr!.branch_id ?? null, introduced_by: mePr!.id }));
+  audit('investor.create', 'profile', id, code, 'Added by ' + (mePr!.full_name || mePr!.email) + ' (introducer)', null, { email, full_name: name, introduced_by: mePr!.code });
+  let invId: string;
+  try {
+    invId = recordInvestment({ p_investor: id, p_plan: plan.id, p_lockin_months: u.lockin_months, p_principal: u.principal, p_expected_start: u.start_date || today(), p_agreement_ref: '', p_deposit_ref: '', p_notes: 'Added by ' + (mePr!.full_name || '') }, true);
+  } catch (e) {
+    // undo the half-created account so the form can be sent again
+    S.users = S.users.filter(x => x.id !== id); S.tables.profiles = T('profiles').filter(x => x.id !== id); throw e;
+  }
+  const inv = T('investments').find(i => i.id === invId)!;
+  T('profiles').filter(p => p.role === 'super_admin' && p.account_status === 'active').forEach(a2 =>
+    notify(a2.id, 'introducer_new', (mePr!.full_name || 'An investor') + ' added a new investor', name + ' · ' + fmtMoney(inv.principal) + ' on ' + plan.name + '. Verify KYC and confirm the deposit.', '/admin/investors/' + code, 'profiles', id));
+  persist('profiles', 'investments', 'ledger_entries', 'notifications', 'audit_logs');
+  return { code, investment: inv.code };
+}
+
 /* ---------- accounts ---------- */
 export async function createAccount(u: Row): Promise<{ id: string; code: string }> {
   requireAdmin();
@@ -668,7 +748,7 @@ export async function createAccount(u: Row): Promise<{ id: string; code: string 
   const id = uuid(); const admin = u.role === 'super_admin';
   S.users.push({ id, email, pw: await hash(u.password) });
   const by = admin ? null : blank(u.introduced_by) ? currentUid : String(u.introduced_by);
-  if (by && !T('profiles').some(x => x.id === by && x.role === 'super_admin')) fail('Choose a valid admin for "Introduced by".');
+  if (by && !canBeIntroducer(by)) fail('Choose a valid person for "Introduced by".');
   const code = admin ? 'ADM-' + nextSeq('admin', 1) : 'INVR-' + nextSeq('investor', 1001);
   T('profiles').push(profileRow(id, email, String(u.full_name).trim(), code, admin ? 'super_admin' : 'investor', admin ? 'verified' : 'pending', { ...u, introduced_by: by }));
   audit(admin ? 'admin.create' : 'investor.create', 'profile', id, code, 'Created with temporary password', null, { email, full_name: u.full_name, role: admin ? 'super_admin' : 'investor' });
@@ -692,7 +772,7 @@ export const userEmail = (id: string) => S.users.find(u => u.id === id)?.email |
 
 function profileRow(id: string, email: string, name: string, code: string, role: string, kyc: string, x: Row = {}): Row {
   return { id, role, code, full_name: name, email, phone: str(x.phone), address: str(x.address), city: str(x.city), id_number_masked: str(x.id_number_masked), bank_name: str(x.bank_name),
-    bank_account_masked: str(x.bank_account_masked), bank_ifsc: str(x.bank_ifsc), kyc_status: kyc, account_status: 'active', notify_email: true, branch_id: x.branch_id ?? null, introduced_by: role === 'investor' ? (x.introduced_by ?? null) : null,
+    bank_account_masked: str(x.bank_account_masked), bank_ifsc: str(x.bank_ifsc), kyc_status: kyc, account_status: 'active', notify_email: true, branch_id: x.branch_id ?? null, introduced_by: role === 'investor' ? (x.introduced_by ?? null) : null, can_introduce: role === 'investor' ? !!x.can_introduce : false,
     created_at: x.created_at || nowIso(), updated_at: nowIso() };
 }
 
@@ -705,6 +785,8 @@ const SAMPLE_INTRODUCED_BY: Record<string, number> = {
   [INVESTOR_EMAIL]: 0, 'rahul.menon@example.com': 1, 'fatima.shaikh@example.com': 2, 'vikram.iyer@example.com': 1,
   'meera.kapoor@example.com': 3, 'arjun.nair@example.com': 2, 'sana.qureshi@example.com': 3, 'kavya.reddy@example.com': 1
 };
+/** Sample investors introduced by Ananya (an investor), not by an admin. */
+const SAMPLE_BY_INVESTOR = [LOWER_INVESTOR_EMAIL, 'meera.kapoor@example.com'];
 async function addSampleIntroducers(): Promise<string[]> {
   const ids: string[] = [];
   for (const [i, [name, email, city]] of SAMPLE_INTRODUCERS.entries()) {
@@ -719,7 +801,11 @@ async function addSampleIntroducers(): Promise<string[]> {
 
 /* ---------- first run: Parva Realty setup plus a small set of sample investors ---------- */
 async function seed(): Promise<Store> {
-  S = { v: 4, tables: Object.fromEntries(TABLES.map(t => [t, []])), seq: {}, users: [] };
+  seeding = true;
+  try { return await seedData(); } finally { seeding = false; }
+}
+async function seedData(): Promise<Store> {
+  S = { v: 5, tables: Object.fromEntries(TABLES.map(t => [t, []])), seq: {}, users: [] };
   T('settings').push({ id: 1, company_name: 'Parva Realty', tagline: 'Every investment, return and maturity in one place.', logo_url: null, primary_color: '#0F2147', currency: 'INR', locale: 'en-IN',
     timezone: 'Asia/Kolkata', approaching_days: 60, request_window_days: 30, default_payout_lag_days: 3, four_eyes: true, allow_custom_lockin: false, lockin_options: [6, 12],
     default_terms: 'Returns are simple interest on the original principal at the monthly rate in this agreement. Unpaid returns are not added to principal.',
@@ -745,11 +831,16 @@ async function seed(): Promise<Store> {
   ];
   const ids = await Promise.all(people.map(async ([name, email, city, b], i) => {
     const id = uuid();
-    S.users.push({ id, email, pw: await hash(i === 0 ? INVESTOR_PASSWORD : uuid()) });
+    S.users.push({ id, email, pw: await hash(i === 0 || email === LOWER_INVESTOR_EMAIL ? INVESTOR_PASSWORD : uuid()) });
     T('profiles').push(profileRow(id, email, name, 'INVR-' + nextSeq('investor', 1001), 'investor', i === 7 ? 'pending' : 'verified',
       { city, phone: '+91 98450 ' + String(10000 + i * 1373).slice(-5), branch_id: br[b], bank_name: ['HDFC', 'ICICI', 'SBI', 'Axis'][i % 4], bank_account_masked: '••••' + (4021 + i * 37), bank_ifsc: ['HDFC0001234', 'ICIC0004567', 'SBIN0007890', 'UTIB0001122'][i % 4], introduced_by: introducers[SAMPLE_INTRODUCED_BY[email] ?? 0], created_at: addMonths(today(), -12 + i) + 'T10:00:00Z' }));
     return id;
   }));
+  // Ananya may add investors; Rahul Menon and Meera Kapoor are investors she brought in, so their bonus goes to her.
+  T('profiles').forEach(p => {
+    if (p.email === INVESTOR_EMAIL) p.can_introduce = true;
+    if (SAMPLE_BY_INVESTOR.includes(p.email)) p.introduced_by = ids[0];
+  });
   // [investor, plan, lock-in, principal, months ago it started]
   const book: [number, number, number, number, number][] = [
     [0, 1, 12, 500000, 7], [0, 0, 6, 200000, 4], [1, 2, 12, 1000000, 11], [1, 1, 12, 500000, 3], [2, 0, 12, 500000, 10], [3, 1, 6, 300000, 8],
@@ -862,6 +953,21 @@ export function ready(): Promise<void> {
           });
         }
         S.v = 4; save();
+      }
+      // v5: investors bring in investors. Ananya may add investors; Rahul Menon and Meera Kapoor become hers (with their bonus),
+      // and Rahul gets a login so the view of an investor brought in by another investor can be tried.
+      if ((S.v || 1) < 5) {
+        const ananya = T('profiles').find(p => p.email === INVESTOR_EMAIL && p.role === 'investor');
+        if (ananya) {
+          ananya.can_introduce = true;
+          T('profiles').filter(p => p.role === 'investor' && SAMPLE_BY_INVESTOR.includes(p.email)).forEach(p => {
+            p.introduced_by = ananya.id;
+            T('admin_bonuses').forEach(b => { if (b.investor_id === p.id) b.admin_id = ananya.id; });
+          });
+          const rahul = S.users.find(x => x.email === LOWER_INVESTOR_EMAIL);
+          if (rahul) rahul.pw = await hash(INVESTOR_PASSWORD);
+        }
+        S.v = 5; save();
       }
     }
     else { S = await seed(); save(); }

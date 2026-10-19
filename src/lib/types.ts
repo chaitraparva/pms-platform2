@@ -19,8 +19,10 @@ export interface Profile {
   id: string; role: Role; code: string | null; full_name: string; email: string; phone: string; address: string; city: string;
   id_number_masked: string; bank_name: string; bank_account_masked: string; bank_ifsc: string;
   kyc_status: KycStatus; account_status: AccountStatus; notify_email: boolean; branch_id: string | null; created_at: string; updated_at: string;
-  /** Investors only: the admin who brought the investor in and receives the admin bonus. Never shown to investors. */
+  /** Investors only: who brought the investor in and receives the bonus (a Super Admin or an investor). Never shown to the investor. */
   introduced_by?: string | null;
+  /** Investors only: the Super Admin allowed this investor to add investors (they get the bonus on those investors). */
+  can_introduce?: boolean;
 }
 
 export interface Branch { id: string; code: string; name: string; city: string; status: 'active' | 'inactive'; created_at: string; updated_at: string }

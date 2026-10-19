@@ -33,7 +33,7 @@ export default function AdminApp() {
     { group: 'Dashboard' }, { to: '/admin', label: 'Overview', icon: 'home', also: ['/admin/branches', '/admin/ranking'] },
     { group: 'Manage' }, { to: '/admin/investors', label: 'Investors', icon: 'users', count: counts.data?.payouts, also: ['/admin/investments', '/admin/payouts'] },
     { to: '/admin/plans', label: 'Investment Plans', icon: 'plans' },
-    { to: '/admin/bonuses', label: 'Admin Bonus', icon: 'roi' },
+    { to: '/admin/bonuses', label: 'Introducer Bonus', icon: 'roi' },
     { to: '/admin/announcements', label: 'Updates', icon: 'announce', also: ['/admin/brochures'] },
     { to: '/admin/properties', label: 'Parva Properties', icon: 'building' },
     { to: '/admin/settings', label: 'Settings', icon: 'settings' }

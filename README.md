@@ -15,7 +15,8 @@ Choose **Super Admin** or **Investor** on the sign-in page, then enter the email
 | Role | Email | Password |
 |------|-------|----------|
 | Super Admin | chaitra@parvarealty.ae | Parva@2026 |
-| Investor (sample) | ananya.rao@example.com | Investor@2026 |
+| Investor who can add investors | ananya.rao@example.com | Investor@2026 |
+| Investor brought in by Ananya | rahul.menon@example.com | Investor@2026 |
 | Super Admin (introducer) | ravi.kumar@example.com | Admin@2026 |
 | Super Admin (introducer) | priya.sharma@example.com | Admin@2026 |
 | Super Admin (introducer) | suresh.gowda@example.com | Admin@2026 |
@@ -34,3 +35,13 @@ npm run build      # output in dist/
 ```
 
 On Vercel, import the repository with the Vite preset. No environment variables are needed.
+
+## Investors who bring in investors
+
+The Super Admin can allow any investor to add investors (investor page → **Allow adding investors**).
+That investor gets an **Add investor** button and a **My investors** section below their own investments:
+the investors they brought in, those investors' investments, and the bonus they earn from them
+(0.5% of the 2% plan, 1% of the 3.3% plan, 2% of the 6% plan). People they add wait for the Super Admin to verify KYC
+and confirm the deposit. The investors they bring in only ever see their own investment and returns.
+The Super Admin sees who brought in whom on every investor and investment, and pays the bonus from **Introducer Bonus**.
+

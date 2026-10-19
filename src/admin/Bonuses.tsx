@@ -8,7 +8,7 @@ import type { AdminBonus } from '../lib/types';
 import { Badge, Kpi, ErrorNote, Loading, PageHead, Modal, Field, IconBtn, useAction } from '../ui/kit';
 import { DataTable, Col } from '../ui/DataTable';
 
-type Person = { id: string; code: string | null; full_name: string; email: string; role: string };
+type Person = { id: string; code: string | null; full_name: string; email: string; role: string; can_introduce?: boolean };
 type Inv = { id: string; code: string; plan_name: string; principal: number };
 interface Row extends AdminBonus { admin?: Person; investor?: Person; inv?: Inv }
 
@@ -21,14 +21,15 @@ async function load() {
   const [bon, invs, people] = await Promise.all([
     fetchAll<AdminBonus>((a, b) => api.from('admin_bonuses').select('*').order('accrual_date', { ascending: false }).range(a, b)),
     fetchAll<Inv>((a, b) => api.from('investments').select('id, code, plan_name, principal').range(a, b)),
-    fetchAll<Person>((a, b) => api.from('profiles').select('id, code, full_name, email, role').range(a, b))
+    fetchAll<Person>((a, b) => api.from('profiles').select('id, code, full_name, email, role, can_introduce').range(a, b))
   ]);
   const invBy = new Map(invs.map(i => [i.id, i])), pplBy = new Map(people.map(p => [p.id, p]));
+  const all_ids = new Set(bon.map(b => b.admin_id).filter(Boolean) as string[]);
   const rows: Row[] = bon.map(b => ({ ...b, admin: b.admin_id ? pplBy.get(b.admin_id) : undefined, investor: pplBy.get(b.investor_id), inv: invBy.get(b.investment_id) }));
-  return { rows, admins: people.filter(p => p.role === 'super_admin') };
+  return { rows, admins: people.filter(p => p.role === 'super_admin' || (p.role === 'investor' && (p.can_introduce || all_ids.has(p.id)))) };
 }
 
-/** Admin bonus: on split plans part of the monthly rate goes to the admin who introduced the investor. Admins only. */
+/** Introducer bonus: part of the monthly rate goes to whoever introduced the investor (a Super Admin or an investor). Super Admins only. */
 export function Bonuses() {
   const q = useQuery(load, []);
   const { busy, run } = useAction();
@@ -51,7 +52,7 @@ export function Bonuses() {
     const m = new Map<string, { name: string; unpaid: number; paid: number; investors: Set<string> }>();
     all.filter(r => r.status !== 'cancelled').forEach(r => {
       const k = r.admin_id || 'none';
-      const x = m.get(k) || { name: r.admin_id ? nameOf(r.admin) : 'No admin set', unpaid: 0, paid: 0, investors: new Set<string>() };
+      const x = m.get(k) || { name: r.admin_id ? nameOf(r.admin) : 'No introducer set', unpaid: 0, paid: 0, investors: new Set<string>() };
       if (r.status === 'paid') x.paid += Number(r.amount); else x.unpaid += Number(r.amount);
       x.investors.add(r.investor_id); m.set(k, x);
     });
@@ -61,19 +62,19 @@ export function Bonuses() {
   const pay = async () => {
     if (!ref.trim()) { setErr('Enter the bank / UTR reference for this payment.'); return; }
     const n = await run(() => rpc<number>('admin_pay_bonuses', { p_ids: chosen.map(r => r.id), p_ref: ref.trim() }),
-      ['Admin bonus marked paid', `${chosen.length} bonus${chosen.length === 1 ? '' : 'es'} · ${money(sum(chosen))}`]);
+      ['Bonus marked paid', `${chosen.length} bonus${chosen.length === 1 ? '' : 'es'} · ${money(sum(chosen))}`]);
     if (n === undefined) return;
     setPaying(false); setSel(new Set()); refreshAll();
   };
 
-  const exportCsv = () => downloadCsv(`admin-bonus-${tab}-${t}`,
-    ['Bonus', 'Admin', 'Investor ID', 'Investor', 'Investment', 'Plan', 'Principal', 'Period', 'Accrued on', 'Bonus rate', 'Amount', 'Status', 'Reference', 'Paid on'],
+  const exportCsv = () => downloadCsv(`introducer-bonus-${tab}-${t}`,
+    ['Bonus', 'Paid to', 'Investor ID', 'Investor', 'Investment', 'Plan', 'Principal', 'Period', 'Accrued on', 'Bonus rate', 'Amount', 'Status', 'Reference', 'Paid on'],
     rows.map(r => [r.code, r.admin_id ? nameOf(r.admin) : '', r.investor?.code, nameOf(r.investor), r.inv?.code, r.inv?.plan_name, r.inv ? Number(r.inv.principal).toFixed(2) : '', r.period_no, r.accrual_date,
       r.rate, Number(r.amount).toFixed(2), r.status, r.payment_ref, r.paid_on]));
 
   const cols: Col<Row>[] = [
     { h: 'Bonus', m: true, v: r => r.code },
-    { h: 'Admin', v: r => r.admin_id ? nameOf(r.admin) : '', r: r => r.admin_id ? <>{nameOf(r.admin)}<span className="sub">{r.admin?.code}</span></> : <span className="muted">No admin set</span> },
+    { h: 'Admin', v: r => r.admin_id ? nameOf(r.admin) : '', r: r => r.admin_id ? <>{nameOf(r.admin)}<span className="sub">{r.admin?.code}</span></> : <span className="muted">No introducer set</span> },
     { h: 'Investor', v: r => nameOf(r.investor), r: r => r.investor?.code ? <><Link to={`/admin/investors/${r.investor.code}`}>{nameOf(r.investor)}</Link><span className="sub">{r.investor.code}</span></> : nameOf(r.investor) },
     { h: 'Investment', v: r => r.inv?.code, r: r => r.inv ? <><Link className="mono" to={`/admin/investments/${r.inv.code}`}>{r.inv.code}</Link><span className="sub">{money(r.inv.principal)} · {r.inv.plan_name}</span></> : '—' },
     { h: 'Period', v: r => r.period_no, r: r => '#' + r.period_no },
@@ -83,12 +84,12 @@ export function Bonuses() {
     { h: 'Reference', v: r => r.payment_ref || '', r: r => r.payment_ref ? <span className="mono">{r.payment_ref}{r.paid_on && <span className="sub">Paid {date(r.paid_on)}</span>}</span> : <span className="muted">—</span> },
     { h: 'Status', v: r => r.status, r: r => <StatusBadge s={r.status} /> }
   ];
-  const splits = Object.entries(ADMIN_BONUS_SPLIT).map(([plan, b]) => `${plan}% plan = ${Number(plan) - b}% to the investor + ${b}% to the admin`).join(' · ');
+  const splits = Object.entries(ADMIN_BONUS_SPLIT).map(([plan, b]) => `${plan}% plan = ${Number(plan) - b}% to the investor + ${b}% to the introducer`).join(' · ');
 
   return (
     <>
-      <PageHead crumbs={['Admin bonus']} title="Admin bonus"
-        sub={<>Part of the plan rate goes to the admin who introduced the investor: {splits}. The total paid out is the same as the plan rate. Investors only ever see their own share.</>}
+      <PageHead crumbs={['Introducer bonus']} title="Introducer bonus"
+        sub={<>Part of the plan rate goes to whoever introduced the investor, a Super Admin or an investor allowed to add investors: {splits}. The total paid out is the same as the plan rate. Investors only ever see their own share.</>}
         actions={<IconBtn icon="download" onClick={exportCsv} disabled={!rows.length}>Export CSV</IconBtn>} />
       {q.error && <ErrorNote msg={q.error} retry={q.reload} />}
       {!q.data && !q.error ? <Loading /> : q.data && (
@@ -96,13 +97,13 @@ export function Bonuses() {
           <div className="kpis k4">
             <Kpi label="Unpaid bonus" value={money(sum(mine.filter(r => r.status === 'accrued')))} sub={`${count('accrued')} month${count('accrued') === 1 ? '' : 's'}`} />
             <Kpi label="Paid bonus" cls="pos" value={money(sum(mine.filter(r => r.status === 'paid')))} sub={`${count('paid')} month${count('paid') === 1 ? '' : 's'}`} />
-            <Kpi label="Admins earning" value={perAdmin.filter(a => a.id !== 'none').length} sub="with at least one bonus" />
-            <Kpi label="No admin set" value={money(perAdmin.find(a => a.id === 'none')?.unpaid || 0)} sub='Set "Introduced by" on the investor' subCls={perAdmin.some(a => a.id === 'none' && a.unpaid) ? 'warn' : ''} />
+            <Kpi label="People earning" value={perAdmin.filter(a => a.id !== 'none').length} sub="with at least one bonus" />
+            <Kpi label="No introducer set" value={money(perAdmin.find(a => a.id === 'none')?.unpaid || 0)} sub='Set "Introduced by" on the investor' subCls={perAdmin.some(a => a.id === 'none' && a.unpaid) ? 'warn' : ''} />
           </div>
           {perAdmin.length > 0 && (
             <div className="card">
-              <div className="card-h"><h3>By admin</h3></div>
-              <div className="tbl"><table><thead><tr><th>Admin</th><th className="n">Investors</th><th className="n">Unpaid</th><th className="n">Paid</th><th className="n">Total</th></tr></thead>
+              <div className="card-h"><h3>By introducer</h3></div>
+              <div className="tbl"><table><thead><tr><th>Introducer</th><th className="n">Investors</th><th className="n">Unpaid</th><th className="n">Paid</th><th className="n">Total</th></tr></thead>
                   <tbody>{perAdmin.map(a => (
                     <tr key={a.id} style={{ cursor: 'pointer' }} onClick={() => { setAdmin(a.id === admin ? '' : a.id); setSel(new Set()); }}>
                       <td>{a.id === 'none' ? <span className="muted">{a.name}</span> : <b>{a.name}</b>}{admin === a.id && <span className="sub">Filtered</span>}</td>
@@ -121,20 +122,20 @@ export function Bonuses() {
               select={tab === 'accrued' ? { selected: sel, onChange: setSel, can: r => r.status === 'accrued' && !!r.admin_id } : undefined}
               tools={<>
                 <select className="input" style={{ width: 'auto' }} value={admin} onChange={e => { setAdmin(e.target.value); setSel(new Set()); }}>
-                  <option value="">All admins</option>
+                  <option value="">Everyone</option>
                   {q.data.admins.map(a => <option key={a.id} value={a.id}>{nameOf(a)}</option>)}
-                  <option value="none">No admin set</option>
+                  <option value="none">No introducer set</option>
                 </select>
                 {tab === 'accrued' && <span className="muted" style={{ alignSelf: 'center', fontSize: 13 }}>{chosen.length ? `${chosen.length} selected · ${money(sum(chosen))}` : 'None selected'}</span>}
                 {tab === 'accrued' && <button className="btn primary sm" disabled={!chosen.length} onClick={() => { setPaying(true); setRef(''); setErr(null); }}>Mark paid</button>}
               </>}
-              emptyTitle={all.length ? 'No bonuses here' : 'No admin bonus yet'}
-              empty={all.length ? 'Try another tab or admin.' : 'A bonus is added every month an investment accrues its return.'} />
+              emptyTitle={all.length ? 'No bonuses here' : 'No bonus yet'}
+              empty={all.length ? 'Try another tab or person.' : 'A bonus is added every month an investment accrues its return.'} />
           </div>
         </>
       )}
       {paying && (
-        <Modal title={`Mark ${chosen.length} bonus${chosen.length === 1 ? '' : 'es'} as paid?`} sub="Only confirm after the transfer to the admin has gone through." onClose={() => setPaying(false)}
+        <Modal title={`Mark ${chosen.length} bonus${chosen.length === 1 ? '' : 'es'} as paid?`} sub="Only confirm after the transfer to the introducer has gone through." onClose={() => setPaying(false)}
           foot={<><button className="btn ghost" onClick={() => setPaying(false)}>Cancel</button><button className="btn primary" onClick={pay} disabled={busy}>{busy ? 'Saving…' : 'Mark paid'}</button></>}>
           <div className="form">
             <dl className="kv">

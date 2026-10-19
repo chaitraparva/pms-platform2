@@ -78,7 +78,7 @@ export function Investments() {
     { h: 'Investor', v: r => r.investor?.full_name || '', r: r => <>{r.investor?.full_name || '—'}<span className="sub">{r.investor?.code}{r.branch ? ' · ' + r.branch : ''}</span></> },
     { h: 'Plan', v: r => r.plan_name, r: r => <>{r.plan_name} <span className="muted mono">v{r.plan_version}</span><span className="sub">{rate(r.monthly_rate)}</span></> },
     { h: 'Bonus to', v: r => r.bonusTo?.full_name || '', r: r => Number(r.admin_bonus || 0) > 0
-      ? (r.bonusTo ? <>{r.bonusTo.full_name || r.bonusTo.email}<span className="sub">{rate(r.admin_bonus_rate || 0)} · {money(r.admin_bonus)} / month</span></> : <span className="muted">No admin set<span className="sub">{rate(r.admin_bonus_rate || 0)} unassigned</span></span>)
+      ? (r.bonusTo ? <>{r.bonusTo.full_name || r.bonusTo.email}<span className="sub">{rate(r.admin_bonus_rate || 0)} · {money(r.admin_bonus)} / month</span></> : <span className="muted">No introducer set<span className="sub">{rate(r.admin_bonus_rate || 0)} unassigned</span></span>)
       : <span className="muted">—</span> },
     { h: 'Principal', n: true, v: r => Number(r.principal), r: r => money(r.principal) },
     { h: 'Lock-in', v: r => r.lockin_months, r: r => lockinText(r.lockin_months) },
@@ -92,7 +92,7 @@ export function Investments() {
 
   const livePrincipal = rows.filter(r => LIVE.includes(r.status)).reduce((x, r) => x + Number(r.principal), 0);
   const exportCsv = () => downloadCsv(`investments-${today()}`,
-    ['Investment', 'Investor ID', 'Investor', 'Branch', 'Plan', 'Version', 'Rate %/month', 'Investor rate %', 'Admin bonus %', 'Admin bonus / month', 'Bonus to', 'Principal', 'Monthly return', 'Lock-in months', 'Start', 'Maturity', 'Accrued', 'Paid', 'Outstanding', 'Status', 'Agreement ref', 'Deposit ref'],
+    ['Investment', 'Investor ID', 'Investor', 'Branch', 'Plan', 'Version', 'Rate %/month', 'Investor rate %', 'Introducer bonus %', 'Introducer bonus / month', 'Bonus to', 'Principal', 'Monthly return', 'Lock-in months', 'Start', 'Maturity', 'Accrued', 'Paid', 'Outstanding', 'Status', 'Agreement ref', 'Deposit ref'],
     rows.map(r => [r.code, r.investor?.code, r.investor?.full_name, r.branch, r.plan_name, r.plan_version, r.monthly_rate, r.investor_rate ?? r.monthly_rate, r.admin_bonus_rate ?? 0, r.admin_bonus ?? 0, r.bonusTo ? r.bonusTo.full_name || r.bonusTo.email : '', r.principal, r.monthly_return, r.lockin_months, r.start_date, r.maturity_date,
       r.bal?.accrued ?? 0, r.bal?.paid ?? 0, r.outstanding, r.label, r.agreement_ref, r.deposit_ref]));
 
@@ -142,7 +142,7 @@ function RecordInvestment({ preInvestor, onClose, onDone }: { preInvestor: strin
       fetchAll<Lite>((a, b) => api.from('profiles').select('id,full_name,code,email,introduced_by').eq('role', 'investor').eq('kyc_status', 'verified').eq('account_status', 'active').order('full_name').range(a, b)),
       api.from('plans').select('*').eq('status', 'active').order('name'),
     ]);
-    const admins = await fetchAll<Lite>((a, b) => api.from('profiles').select('id,full_name,code,email').eq('role', 'super_admin').range(a, b));
+    const admins = await fetchAll<Lite>((a, b) => api.from('profiles').select('id,full_name,code,email').range(a, b));
     const pl = must(plans) as Plan[];
     const versions = pl.length ? must(await api.from('plan_versions').select('*').in('plan_id', pl.map(p => p.id)).order('version', { ascending: false })) as PlanVersion[] : [];
     return { people, plans: pl, versions, admins };
@@ -265,7 +265,7 @@ function RecordInvestment({ preInvestor, onClose, onDone }: { preInvestor: strin
               <dl className="kv">
                 <dt>Plan rate</dt><dd>{pv ? rate(pv.monthly_rate) : '—'}</dd>
                 {split && split.bonus > 0 && <><dt>Investor ROI</dt><dd>{rate(split.investor)} <span className="muted">(what the investor sees)</span></dd>
-                  <dt>Admin bonus</dt><dd>{rate(split.bonus)}{sr ? ' · ' + money(sr.bonus) + ' / month' : ''} <span className="muted">to {intro ? <b>{intro.full_name || intro.email}</b> : investor ? 'no admin set on this investor' : 'the admin who introduced the investor'}</span></dd></>}
+                  <dt>Introducer bonus</dt><dd>{rate(split.bonus)}{sr ? ' · ' + money(sr.bonus) + ' / month' : ''} <span className="muted">to {intro ? <b>{intro.full_name || intro.email}</b> : investor ? 'no introducer set on this investor' : 'whoever introduced the investor'}</span></dd></>}
                 <dt>Investor monthly return</dt><dd>{mr ? money(mr) : '—'}</dd>
                 <dt>First accrual</dt><dd>{start ? date(addMonths(start, 1)) : '—'}</dd>
                 <dt>Lock-in end / maturity</dt><dd>{maturity ? date(maturity) : '—'}</dd>
@@ -379,7 +379,7 @@ export function InvestmentDetail() {
       <div className="kpis">
         <Kpi label="Principal" value={money(i.principal)} sub="Original, never changes" />
         <Kpi label="Investor monthly return" value={money(i.monthly_return)}
-          sub={Number(i.admin_bonus || 0) > 0 ? `${rate(i.investor_rate ?? i.monthly_rate)} · + ${money(i.admin_bonus)} (${rate(i.admin_bonus_rate || 0)}) to ${introducedBy ? nm(introducedBy) : 'no admin set'}` : `${rate(i.monthly_rate)} × principal`} />
+          sub={Number(i.admin_bonus || 0) > 0 ? `${rate(i.investor_rate ?? i.monthly_rate)} · + ${money(i.admin_bonus)} (${rate(i.admin_bonus_rate || 0)}) to ${introducedBy ? nm(introducedBy) : 'no introducer set'}` : `${rate(i.monthly_rate)} × principal`} />
         <Kpi label="Accrued to date" value={money(bal?.accrued || 0)} sub={`${bal?.periods_accrued || 0} of ${i.lockin_months} periods`} tip="Sum of accrual entries, net of reversals." />
         <Kpi label="Paid (confirmed)" value={money(bal?.paid || 0)} cls="pos" sub={`${paidCount} payout${paidCount === 1 ? '' : 's'}`} />
         <Kpi label="Outstanding" value={money(outstanding)} sub={Number(bal?.processing || 0) ? `${money(bal!.processing)} processing` : 'Accrued, not yet paid'} subCls={outstanding ? 'warn' : ''} />
@@ -455,8 +455,8 @@ export function InvestmentDetail() {
               <dl className="kv">
                 <dt>Plan rate</dt><dd>{rate(i.monthly_rate)}</dd>
                 {Number(i.admin_bonus || 0) > 0 && <><dt>Investor ROI</dt><dd>{rate(i.investor_rate ?? i.monthly_rate)} <span className="muted">(shown to the investor)</span></dd>
-                  <dt>Admin bonus</dt><dd>{rate(i.admin_bonus_rate || 0)} · {money(i.admin_bonus)} / month</dd>
-                  <dt>Bonus goes to</dt><dd>{introducedBy ? <b>{nm(introducedBy)}</b> : <span className="muted">No admin set. Set “Introduced by” on the investor.</span>}</dd></>}
+                  <dt>Introducer bonus</dt><dd>{rate(i.admin_bonus_rate || 0)} · {money(i.admin_bonus)} / month</dd>
+                  <dt>Bonus goes to</dt><dd>{introducedBy ? <b>{nm(introducedBy)}</b> : <span className="muted">No introducer set. Set “Introduced by” on the investor.</span>}</dd></>}
                 <dt>Method</dt><dd>Simple interest</dd>
                 <dt>Plan</dt><dd>{plan ? <Link to={'/admin/plans/' + plan.code}>{i.plan_name}</Link> : i.plan_name} · v{i.plan_version}</dd>
                 <dt>Lock-in</dt><dd>{lockinText(i.lockin_months)}</dd>

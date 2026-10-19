@@ -44,7 +44,7 @@ export function Investors() {
       loadBranches()
     ]);
     const admins = await loadAdmins();
-    const an = new Map(admins.map(a => [a.id, a.full_name || a.email]));
+    const an = new Map([...admins, ...people].map(a => [a.id, (a.full_name || a.email) + (a.role === 'investor' ? ' (investor)' : '')]));
     const bn = new Map(branches.map(b => [b.id, b.name]));
     const bm = new Map(bal.map(x => [x.investment_id, x]));
     const by = new Map<string, typeof invs>();
@@ -73,9 +73,9 @@ export function Investors() {
   const branches = q.data?.branches || [];
   const branchParam = sp.get('branch') || '';
   const cols: Col<Row>[] = useMemo(() => [
-    { h: 'Investor', v: r => r.full_name, r: r => <><b>{r.full_name || '—'}</b><span className="sub">{r.code} · {r.email}</span></> },
+    { h: 'Investor', v: r => r.full_name, r: r => <><b>{r.full_name || '—'}</b>{r.can_introduce && <> <Badge cls="b-blue">Adds investors</Badge></>}<span className="sub">{r.code} · {r.email}</span></> },
     { h: 'Branch', v: r => r.branch || 'zz', r: r => r.branch || <span className="muted">Not assigned</span> },
-    { h: 'Introduced by', v: r => r.introducer || 'zz', r: r => r.introducer || <span className="muted">No admin set</span> },
+    { h: 'Introduced by', v: r => r.introducer || 'zz', r: r => r.introducer || <span className="muted">No introducer set</span> },
     { h: 'Phone', v: r => r.phone, r: r => <span className="num">{r.phone || '—'}</span> },
     { h: 'Registered', v: r => r.created_at, r: r => date(r.created_at) },
     { h: 'Verification', v: r => r.kyc_status, r: r => <KycBadge k={r.kyc_status} /> },
@@ -147,9 +147,17 @@ export function BranchDialog({ ids, label, current, branches, onClose, onDone }:
   );
 }
 
-/** Super Admins who can be chosen as "Introduced by" (they receive the admin bonus). */
-type AdminLite = Pick<Profile, 'id' | 'code' | 'full_name' | 'email' | 'account_status'>;
-const loadAdmins = () => fetchAll<AdminLite>((a, b) => api.from('profiles').select('id, code, full_name, email, account_status').eq('role', 'super_admin').order('full_name').range(a, b));
+/** People who can be chosen as "Introduced by" (they receive the bonus): Super Admins and investors allowed to add investors. */
+type AdminLite = Pick<Profile, 'id' | 'code' | 'full_name' | 'email' | 'account_status' | 'role' | 'can_introduce'>;
+const loadAdmins = async () => {
+  const cols = 'id, code, full_name, email, account_status, role, can_introduce';
+  const [admins, investors] = await Promise.all([
+    fetchAll<AdminLite>((a, b) => api.from('profiles').select(cols).eq('role', 'super_admin').order('full_name').range(a, b)),
+    fetchAll<AdminLite>((a, b) => api.from('profiles').select(cols).eq('role', 'investor').eq('can_introduce', true).order('full_name').range(a, b))
+  ]);
+  return [...admins, ...investors];
+};
+const introLabel = (a: AdminLite) => (a.full_name || a.email) + (a.code ? ' · ' + a.code : '') + (a.role === 'investor' ? ' (investor)' : ' (Super Admin)');
 
 function AddInvestor({ onClose, onDone }: { onClose: () => void; onDone: (code: string) => void }) {
   const act = useAction();
@@ -204,9 +212,9 @@ function AddInvestor({ onClose, onDone }: { onClose: () => void; onDone: (code: 
           <Field label="Email *" err={tried ? errs.email : null}><input className={'input ' + (tried && errs.email ? 'bad' : '')} type="email" value={f.email} onChange={set('email')} /></Field>
           <Field label="Phone"><input className="input" value={f.phone} onChange={set('phone')} /></Field>
         </div>
-        <Field label="Introduced by (admin)" hint="The admin who brought this investor in. They get a bonus out of the plan rate: 0.5% on the 2% plan, 1% on the 3.3% plan, 2% on the 6% plan. The investor never sees this.">
+        <Field label="Introduced by" hint="Who brought this investor in: a Super Admin, or an investor allowed to add investors. They get a bonus out of the plan rate: 0.5% on the 2% plan, 1% on the 3.3% plan, 2% on the 6% plan. The investor never sees this.">
           <select className="input" value={introducedBy} onChange={e => setIntroducedBy(e.target.value)}>
-            {(aq.data || []).filter(a => a.account_status === 'active' || a.id === introducedBy).map(a => <option key={a.id} value={a.id}>{a.full_name || a.email}{a.code ? ' · ' + a.code : ''}</option>)}
+            {(aq.data || []).filter(a => a.account_status === 'active' || a.id === introducedBy).map(a => <option key={a.id} value={a.id}>{introLabel(a)}</option>)}
           </select>
         </Field>
         {mode === 'password' && (
@@ -233,6 +241,7 @@ function AddInvestor({ onClose, onDone }: { onClose: () => void; onDone: (code: 
 /* =============================== DETAIL =============================== */
 interface DetailData {
   p: Profile; invs: Investment[]; bal: Map<string, Balance>; history: AuditLog[]; ledger: LedgerEntry[]; payouts: Payout[]; docs: DocumentRow[]; invCode: Record<string, string>; branches: Branch[]; admins: AdminLite[];
+  introducer: AdminLite | null; brought: Profile[]; bonus: { earned: number; paid: number };
 }
 
 async function loadDetail(code: string): Promise<DetailData | null> {
@@ -251,10 +260,17 @@ async function loadDetail(code: string): Promise<DetailData | null> {
   const bal = ids.length ? must(await api.from('investment_balances').select('*').in('investment_id', ids)) as Balance[] : [];
   const invCode: Record<string, string> = {};
   invs.forEach(i => { invCode[i.id] = i.code; });
-  return { p, invs, bal: new Map(bal.map(b => [b.investment_id, b])), history: must(history) as AuditLog[], ledger: must(ledger) as LedgerEntry[], payouts: must(pays) as Payout[], docs: must(docs) as DocumentRow[], invCode, branches, admins };
+  const [intro, brought, bon] = await Promise.all([
+    p.introduced_by ? api.from('profiles').select('id, code, full_name, email, account_status, role, can_introduce').eq('id', p.introduced_by).maybeSingle() : Promise.resolve({ data: null, error: null }),
+    fetchAll<Profile>((a, b) => api.from('profiles').select('*').eq('introduced_by', p.id).eq('role', 'investor').order('full_name').range(a, b)),
+    fetchAll<{ amount: number; status: string }>((a, b) => api.from('admin_bonuses').select('amount, status').eq('admin_id', p.id).range(a, b))
+  ]);
+  const tot = (f: (x: { status: string }) => boolean) => Math.round(bon.filter(f).reduce((x, y) => x + Number(y.amount), 0) * 100) / 100;
+  return { p, invs, bal: new Map(bal.map(b => [b.investment_id, b])), history: must(history) as AuditLog[], ledger: must(ledger) as LedgerEntry[], payouts: must(pays) as Payout[], docs: must(docs) as DocumentRow[], invCode, branches, admins,
+    introducer: (must(intro) as AdminLite | null) || null, brought, bonus: { earned: tot(x => x.status !== 'cancelled'), paid: tot(x => x.status === 'paid') } };
 }
 
-type Dialog = null | 'kyc-verified' | 'kyc-rejected' | 'status' | 'edit' | 'upload' | 'branch' | 'password' | { del: DocumentRow };
+type Dialog = null | 'introduce' | 'kyc-verified' | 'kyc-rejected' | 'status' | 'edit' | 'upload' | 'branch' | 'password' | { del: DocumentRow };
 
 export function InvestorDetail() {
   const { code = '' } = useParams();
@@ -271,8 +287,7 @@ export function InvestorDetail() {
     <><PageHead crumbs={['Investors', 'Not found']} title="Investor not found" />
       <Empty title="Investor not found">No investor has the code {code}. <Link to="/admin/investors">Back to investors</Link></Empty></>
   );
-  const { p, invs, bal, history, ledger, payouts, docs, invCode, branches, admins } = q.data;
-  const introducer = admins.find(a => a.id === p.introduced_by) || null;
+  const { p, invs, bal, history, ledger, payouts, docs, invCode, branches, introducer, brought, bonus } = q.data;
   const live = invs.filter(i => LIVE.includes(i.status));
   const principal = live.reduce((x, i) => x + Number(i.principal), 0);
   const unlocked = live.filter(i => isUnlocked(i)).reduce((x, i) => x + Number(i.principal), 0);
@@ -292,7 +307,9 @@ export function InvestorDetail() {
         actions={<>
           <KycBadge k={p.kyc_status} /> <AcctBadge s={p.account_status} />
           {p.role === 'super_admin' && <Badge cls="b-navy">Super Admin</Badge>}
+          {p.can_introduce && <Badge cls="b-blue">Can add investors</Badge>}
           <button className="btn" onClick={() => setDlg('edit')}>Edit details</button>
+          {p.role === 'investor' && <button className="btn" onClick={() => setDlg('introduce')}><Icon name="users" />{p.can_introduce ? 'Stop adding investors' : 'Allow adding investors'}</button>}
           <button className="btn" onClick={() => setDlg('password')}>Reset password</button>
           <button className="btn" onClick={() => nav('/admin/announcements?to=' + p.id)}><Icon name="announce" />Send notice</button>
           {!self && <button className={'btn ' + (p.account_status === 'active' ? 'danger' : '')} onClick={() => setDlg('status')}>{p.account_status === 'active' ? 'Suspend account' : 'Reactivate account'}</button>}
@@ -302,7 +319,7 @@ export function InvestorDetail() {
         </>}>
         <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
           <div className="avatar" style={{ width: 52, height: 52, fontSize: 17 }}>{initials(p.full_name || p.email)}</div>
-          <div><h1>{p.full_name || p.email}</h1><p>{[p.code, p.email, branch ? branch.name + ' branch' : 'No branch', p.phone, p.city, p.role === 'investor' ? 'Introduced by ' + (introducer ? introducer.full_name || introducer.email : 'no admin') : ''].filter(Boolean).join(' · ')}</p></div>
+          <div><h1>{p.full_name || p.email}</h1><p>{[p.code, p.email, branch ? branch.name + ' branch' : 'No branch', p.phone, p.city, p.role === 'investor' ? 'Introduced by ' + (introducer ? (introducer.full_name || introducer.email) + (introducer.role === 'investor' ? ' (investor)' : '') : 'nobody') : ''].filter(Boolean).join(' · ')}</p></div>
         </div>
       </PageHead>
 
@@ -321,6 +338,25 @@ export function InvestorDetail() {
         <Kpi label="Returns paid" value={money(paid)} cls="pos" sub="Confirmed with bank reference" />
         <Kpi label="Outstanding" value={money(outstanding)} sub="Accrued, not yet paid" subCls={outstanding ? 'warn' : ''} />
       </div>
+
+      {introducer && introducer.role === 'investor' && (
+        <div className="note info">Brought in by <Link to={'/admin/investors/' + introducer.code}><b>{introducer.full_name || introducer.email}</b></Link> ({introducer.code}). The bonus on this investor’s investments goes to them. {p.full_name || 'This investor'} does not see this.</div>
+      )}
+      {p.role === 'investor' && (p.can_introduce || brought.length > 0) && (
+        <div className="card">
+          <div className="card-h"><h3>Investors brought in by {p.full_name || p.email}</h3>
+            <div className="r">{brought.length} investor{brought.length === 1 ? '' : 's'} · bonus earned {money(bonus.earned)} · paid {money(bonus.paid)}</div></div>
+          {brought.length ? (
+            <div className="tbl"><table><thead><tr><th>Investor</th><th>Branch</th><th>Verification</th><th>Added</th></tr></thead>
+              <tbody>{brought.map(x => (
+                <tr key={x.id} style={{ cursor: 'pointer' }} onClick={() => nav('/admin/investors/' + x.code)}>
+                  <td><b>{x.full_name || x.email}</b><span className="sub">{x.code} · {x.email}</span></td>
+                  <td>{branches.find(b => b.id === x.branch_id)?.name || <span className="muted">—</span>}</td>
+                  <td><KycBadge k={x.kyc_status} /></td><td>{date(x.created_at)}</td>
+                </tr>))}</tbody></table></div>
+          ) : <div className="card-b"><Empty title="Nobody yet">{p.full_name || 'This investor'} can add investors from their portal. They appear here, waiting for KYC and deposit confirmation.</Empty></div>}
+        </div>
+      )}
 
       <div className="grid g-2-1">
         <div className="card">
@@ -433,6 +469,7 @@ export function InvestorDetail() {
 
       {(dlg === 'kyc-verified' || dlg === 'kyc-rejected') && <KycDialog p={p} to={dlg === 'kyc-verified' ? 'verified' : 'rejected'} onClose={() => setDlg(null)} />}
       {dlg === 'status' && <StatusDialog p={p} onClose={() => setDlg(null)} />}
+      {dlg === 'introduce' && <IntroduceDialog p={p} count={brought.length} onClose={() => setDlg(null)} />}
       {dlg === 'branch' && <BranchDialog ids={[p.id]} label={p.full_name || p.email} current={p.branch_id} branches={branches} onClose={() => setDlg(null)} />}
       {dlg === 'edit' && <EditInvestor p={p} onClose={() => setDlg(null)} />}
       {dlg === 'password' && <ResetPassword p={p} onClose={() => setDlg(null)} />}
@@ -458,6 +495,27 @@ function KycDialog({ p, to, onClose }: { p: Profile; to: KycStatus; onClose: () 
       onClose={onClose}
       foot={<><button className="btn ghost" onClick={onClose}>Cancel</button><button className={'btn ' + (to === 'verified' ? 'primary' : 'danger')} onClick={go} disabled={act.busy}>{to === 'verified' ? 'Verify investor' : 'Reject'}</button></>}>
       <Field label="Reason *" err={tried ? err : null}><input className={'input ' + (tried && err ? 'bad' : '')} value={reason} onChange={e => setReason(e.target.value)} placeholder={to === 'rejected' ? 'e.g. Address on ID does not match bank record' : ''} /></Field>
+    </Modal>
+  );
+}
+
+/** Turns on (or off) an investor's right to add investors from their portal. */
+function IntroduceDialog({ p, count, onClose }: { p: Profile; count: number; onClose: () => void }) {
+  const act = useAction();
+  const on = !p.can_introduce;
+  const [reason, setReason] = useState('');
+  const go = async () => {
+    const r = await act.run(() => rpc('admin_set_can_introduce', { p_id: p.id, p_value: on, p_reason: reason.trim() }),
+      [on ? 'Can now add investors' : 'Can no longer add investors', `${p.full_name || p.email} · recorded in the audit log`]);
+    if (r !== undefined) { refreshAll(); onClose(); }
+  };
+  return (
+    <Modal title={on ? `Allow ${p.full_name || p.email} to add investors?` : `Stop ${p.full_name || p.email} adding investors?`}
+      sub={on ? 'They get an “Add investor” button in their portal. People they add wait for you to verify KYC and confirm the deposit. They earn the bonus on those investors’ investments: 0.5% of the 2% plan, 1% of the 3.3% plan, 2% of the 6% plan.'
+        : `They can no longer add new investors. The ${count} investor${count === 1 ? '' : 's'} they already brought in stay with them, and so does the bonus on those investments.`}
+      onClose={onClose}
+      foot={<><button className="btn ghost" onClick={onClose}>Cancel</button><button className={'btn ' + (on ? 'primary' : 'danger')} onClick={go} disabled={act.busy}>{on ? 'Allow' : 'Stop'}</button></>}>
+      <Field label="Note (optional, saved to the audit log)"><input className="input" value={reason} onChange={e => setReason(e.target.value)} placeholder={on ? 'e.g. Agreed referral partner' : 'e.g. Referral agreement ended'} /></Field>
     </Modal>
   );
 }
@@ -531,10 +589,10 @@ function EditInvestor({ p, onClose }: { p: Profile; onClose: () => void }) {
       <div className="form">
         <Field label="Full name *" err={tried ? errs.name : null}><input className="input" value={f.full_name} onChange={set('full_name')} /></Field>
         {p.role === 'investor' && (
-          <Field label="Introduced by (admin)" hint="Receives the admin bonus. Unpaid bonuses move to the admin you choose. Hidden from the investor.">
+          <Field label="Introduced by" hint="Receives the bonus. Unpaid bonuses move to the person you choose. Hidden from the investor.">
             <select className="input" value={f.introduced_by} onChange={set('introduced_by')}>
               <option value="">No admin</option>
-              {(aq.data || []).filter(a => a.account_status === 'active' || a.id === f.introduced_by).map(a => <option key={a.id} value={a.id}>{a.full_name || a.email}{a.code ? ' · ' + a.code : ''}</option>)}
+              {(aq.data || []).filter(a => a.id !== p.id && (a.account_status === 'active' || a.id === f.introduced_by)).map(a => <option key={a.id} value={a.id}>{introLabel(a)}</option>)}
             </select>
           </Field>
         )}

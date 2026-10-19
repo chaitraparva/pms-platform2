@@ -12,6 +12,7 @@ import { bal, isLive, lastMonths, loadPortfolio, nextAccrual, type Portfolio } f
 import { Tracker } from './parts';
 import { loadMyBrochures } from './Brochures';
 import { loadProperties, ParvaBanner, PropertyGrid } from './Properties';
+import { MyNetwork } from './Network';
 
 export function Overview() {
   const { profile, settings } = useAuth();
@@ -150,6 +151,9 @@ export function Overview() {
               );
             })}
           </div>
+
+          {/* investors this investor brought in (only shown when the company allowed them to add investors) */}
+          <MyNetwork />
 
           <div className="grid g-2-1">
             <div className="card">
