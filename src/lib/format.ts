@@ -122,9 +122,10 @@ export const LEDGER_TYPE: Record<string, string> = {
 };
 
 /* ---------- admin bonus split ----------
-   On these plans part of the monthly rate goes to the admin who introduced the investor instead of the investor.
-   The total paid out stays the plan rate: 6% plan = 4% to the investor + 2% bonus to the introducing admin. */
-export const ADMIN_BONUS_SPLIT: Record<string, number> = { '6': 2 };
+   On every plan part of the monthly rate goes to the admin who introduced the investor instead of the investor.
+   The total paid out stays the plan rate:
+   2% plan = 1.5% investor + 0.5% admin · 3.3% plan = 2.3% investor + 1% admin · 6% plan = 4% investor + 2% admin. */
+export const ADMIN_BONUS_SPLIT: Record<string, number> = { '2': 0.5, '3.3': 1, '6': 2 };
 /** The investor's share and the admin's bonus share of a plan's monthly rate. */
 export function splitRate(planRate: number | string): { investor: number; bonus: number } {
   const r = Number(planRate), bonus = ADMIN_BONUS_SPLIT[String(r)] || 0;

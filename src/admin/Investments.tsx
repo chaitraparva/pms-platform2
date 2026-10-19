@@ -12,7 +12,7 @@ import { Kpi, Empty, ErrorNote, Loading, PageHead, InvBadge, PayBadge, LedgerBad
 import { Icon } from '../ui/Icon';
 
 const LIVE = ['active', 'matured', 'redemption_requested', 'redemption_processing'];
-type Lite = Pick<Profile, 'id' | 'full_name' | 'code' | 'email'> & { branch_id?: string | null };
+type Lite = Pick<Profile, 'id' | 'full_name' | 'code' | 'email'> & { branch_id?: string | null; introduced_by?: string | null; role?: string };
 
 function addDays(iso: string, n: number): string {
   const d = new Date(iso + 'T00:00:00Z');
@@ -32,7 +32,7 @@ async function namesFor(ids: (string | null | undefined)[]): Promise<Record<stri
 }
 
 /* =============================== REGISTER =============================== */
-interface Row extends Investment { investor: Lite | undefined; bal: Balance | undefined; label: string; outstanding: number; branch: string; branchCode: string }
+interface Row extends Investment { investor: Lite | undefined; bal: Balance | undefined; label: string; outstanding: number; branch: string; branchCode: string; bonusTo: Lite | undefined }
 
 export function Investments() {
   const s = useSettings();
@@ -49,7 +49,7 @@ export function Investments() {
     const [invs, bal, people, branches] = await Promise.all([
       fetchAll<Investment>((a, b) => api.from('investments').select('*').order('created_at', { ascending: false }).range(a, b)),
       fetchAll<Balance>((a, b) => api.from('investment_balances').select('*').range(a, b)),
-      fetchAll<Lite>((a, b) => api.from('profiles').select('id,full_name,code,email,branch_id').range(a, b)),
+      fetchAll<Lite>((a, b) => api.from('profiles').select('id,full_name,code,email,branch_id,introduced_by').range(a, b)),
       api.from('branches').select('*').order('name').then(r => must(r) as Branch[])
     ]);
     const bm = new Map(bal.map(x => [x.investment_id, x]));
@@ -60,7 +60,7 @@ export function Investments() {
       rows: invs.map<Row>(i => {
         const who = pm.get(i.investor_id);
         const br = who?.branch_id ? bn.get(who.branch_id) : undefined;
-        return { ...i, investor: who, bal: bm.get(i.id), label: investmentLabel(i, s.approaching_days), outstanding: outstandingOf(bm.get(i.id)), branch: br?.name || '', branchCode: br?.code || '' };
+        return { ...i, investor: who, bal: bm.get(i.id), label: investmentLabel(i, s.approaching_days), outstanding: outstandingOf(bm.get(i.id)), branch: br?.name || '', branchCode: br?.code || '', bonusTo: who?.introduced_by ? pm.get(who.introduced_by) : undefined };
       })
     };
   }, [s.approaching_days]);
@@ -77,6 +77,9 @@ export function Investments() {
     { h: 'Investment', v: r => r.code, r: r => <><b className="mono">{r.code}</b><span className="sub">{r.agreement_ref || '—'}</span></> },
     { h: 'Investor', v: r => r.investor?.full_name || '', r: r => <>{r.investor?.full_name || '—'}<span className="sub">{r.investor?.code}{r.branch ? ' · ' + r.branch : ''}</span></> },
     { h: 'Plan', v: r => r.plan_name, r: r => <>{r.plan_name} <span className="muted mono">v{r.plan_version}</span><span className="sub">{rate(r.monthly_rate)}</span></> },
+    { h: 'Bonus to', v: r => r.bonusTo?.full_name || '', r: r => Number(r.admin_bonus || 0) > 0
+      ? (r.bonusTo ? <>{r.bonusTo.full_name || r.bonusTo.email}<span className="sub">{rate(r.admin_bonus_rate || 0)} · {money(r.admin_bonus)} / month</span></> : <span className="muted">No admin set<span className="sub">{rate(r.admin_bonus_rate || 0)} unassigned</span></span>)
+      : <span className="muted">—</span> },
     { h: 'Principal', n: true, v: r => Number(r.principal), r: r => money(r.principal) },
     { h: 'Lock-in', v: r => r.lockin_months, r: r => lockinText(r.lockin_months) },
     { h: 'Start', v: r => r.start_date || '9999', r: r => (r.start_date ? date(r.start_date) : <span className="muted">Not funded</span>) },
@@ -89,8 +92,8 @@ export function Investments() {
 
   const livePrincipal = rows.filter(r => LIVE.includes(r.status)).reduce((x, r) => x + Number(r.principal), 0);
   const exportCsv = () => downloadCsv(`investments-${today()}`,
-    ['Investment', 'Investor ID', 'Investor', 'Branch', 'Plan', 'Version', 'Rate %/month', 'Principal', 'Monthly return', 'Lock-in months', 'Start', 'Maturity', 'Accrued', 'Paid', 'Outstanding', 'Status', 'Agreement ref', 'Deposit ref'],
-    rows.map(r => [r.code, r.investor?.code, r.investor?.full_name, r.branch, r.plan_name, r.plan_version, r.monthly_rate, r.principal, r.monthly_return, r.lockin_months, r.start_date, r.maturity_date,
+    ['Investment', 'Investor ID', 'Investor', 'Branch', 'Plan', 'Version', 'Rate %/month', 'Investor rate %', 'Admin bonus %', 'Admin bonus / month', 'Bonus to', 'Principal', 'Monthly return', 'Lock-in months', 'Start', 'Maturity', 'Accrued', 'Paid', 'Outstanding', 'Status', 'Agreement ref', 'Deposit ref'],
+    rows.map(r => [r.code, r.investor?.code, r.investor?.full_name, r.branch, r.plan_name, r.plan_version, r.monthly_rate, r.investor_rate ?? r.monthly_rate, r.admin_bonus_rate ?? 0, r.admin_bonus ?? 0, r.bonusTo ? r.bonusTo.full_name || r.bonusTo.email : '', r.principal, r.monthly_return, r.lockin_months, r.start_date, r.maturity_date,
       r.bal?.accrued ?? 0, r.bal?.paid ?? 0, r.outstanding, r.label, r.agreement_ref, r.deposit_ref]));
 
   return (
@@ -136,12 +139,13 @@ function RecordInvestment({ preInvestor, onClose, onDone }: { preInvestor: strin
   const t = today();
   const opts = useQuery(async () => {
     const [people, plans] = await Promise.all([
-      fetchAll<Lite>((a, b) => api.from('profiles').select('id,full_name,code,email').eq('role', 'investor').eq('kyc_status', 'verified').eq('account_status', 'active').order('full_name').range(a, b)),
-      api.from('plans').select('*').eq('status', 'active').order('name')
+      fetchAll<Lite>((a, b) => api.from('profiles').select('id,full_name,code,email,introduced_by').eq('role', 'investor').eq('kyc_status', 'verified').eq('account_status', 'active').order('full_name').range(a, b)),
+      api.from('plans').select('*').eq('status', 'active').order('name'),
     ]);
+    const admins = await fetchAll<Lite>((a, b) => api.from('profiles').select('id,full_name,code,email').eq('role', 'super_admin').range(a, b));
     const pl = must(plans) as Plan[];
     const versions = pl.length ? must(await api.from('plan_versions').select('*').in('plan_id', pl.map(p => p.id)).order('version', { ascending: false })) as PlanVersion[] : [];
-    return { people, plans: pl, versions };
+    return { people, plans: pl, versions, admins };
   }, []);
 
   const [investor, setInvestor] = useState('');
@@ -188,6 +192,8 @@ function RecordInvestment({ preInvestor, onClose, onDone }: { preInvestor: strin
   const split = pv ? splitRate(pv.monthly_rate) : null;
   const sr = pv && amt > 0 ? splitReturn(amt, pv.monthly_rate) : null;
   const mr = sr ? sr.investor : 0;
+  const introBy = opts.data?.people.find(p => p.id === investor)?.introduced_by;
+  const intro = introBy ? opts.data?.admins.find(a => a.id === introBy) : undefined;
   const maturity = start && months > 0 ? addMonths(start, months) : null;
 
   const save = async () => {
@@ -259,7 +265,7 @@ function RecordInvestment({ preInvestor, onClose, onDone }: { preInvestor: strin
               <dl className="kv">
                 <dt>Plan rate</dt><dd>{pv ? rate(pv.monthly_rate) : '—'}</dd>
                 {split && split.bonus > 0 && <><dt>Investor ROI</dt><dd>{rate(split.investor)} <span className="muted">(what the investor sees)</span></dd>
-                  <dt>Admin bonus</dt><dd>{rate(split.bonus)}{sr ? ' · ' + money(sr.bonus) + ' / month' : ''} <span className="muted">to the admin who introduced the investor</span></dd></>}
+                  <dt>Admin bonus</dt><dd>{rate(split.bonus)}{sr ? ' · ' + money(sr.bonus) + ' / month' : ''} <span className="muted">to {intro ? <b>{intro.full_name || intro.email}</b> : investor ? 'no admin set on this investor' : 'the admin who introduced the investor'}</span></dd></>}
                 <dt>Investor monthly return</dt><dd>{mr ? money(mr) : '—'}</dd>
                 <dt>First accrual</dt><dd>{start ? date(addMonths(start, 1)) : '—'}</dd>
                 <dt>Lock-in end / maturity</dt><dd>{maturity ? date(maturity) : '—'}</dd>
@@ -281,7 +287,7 @@ interface Amendment {
 }
 interface DetailData {
   i: Investment; investor: Lite | undefined; bal: Balance | null; accruals: Accrual[]; payouts: Payout[]; ledger: LedgerEntry[];
-  amendments: Amendment[]; plan: Plan | null; names: Record<string, Lite>;
+  amendments: Amendment[]; plan: Plan | null; names: Record<string, Lite>; introducedBy: string | null;
 }
 
 async function loadInvestment(code: string): Promise<DetailData | null> {
@@ -296,8 +302,10 @@ async function loadInvestment(code: string): Promise<DetailData | null> {
     api.from('plans').select('*').eq('id', i.plan_id).maybeSingle()
   ]);
   const amendments = must(amend) as Amendment[];
-  const names = await namesFor([i.investor_id, i.created_by, i.activated_by, ...amendments.flatMap(a => [a.requested_by, a.approved_by])]);
-  return { i, investor: names[i.investor_id], bal: must(bal) as Balance | null, accruals, payouts, ledger, amendments, plan: must(plan) as Plan | null, names };
+  const ip = must(await api.from('profiles').select('introduced_by').eq('id', i.investor_id).maybeSingle()) as { introduced_by?: string | null } | null;
+  const introducedBy = ip?.introduced_by || null;
+  const names = await namesFor([i.investor_id, introducedBy, i.created_by, i.activated_by, ...amendments.flatMap(a => [a.requested_by, a.approved_by])]);
+  return { i, investor: names[i.investor_id], bal: must(bal) as Balance | null, accruals, payouts, ledger, amendments, plan: must(plan) as Plan | null, names, introducedBy };
 }
 
 type Dialog = null | 'fund' | 'cancel' | 'amend';
@@ -313,7 +321,7 @@ export function InvestmentDetail() {
   if (q.error) return <><PageHead crumbs={['Investments', code]} title={code} /><ErrorNote msg={q.error} retry={q.reload} /></>;
   if (!q.data && q.loading) return <><PageHead crumbs={['Investments', code]} title={code} /><Loading rows={6} /></>;
   if (!q.data) return <><PageHead crumbs={['Investments', 'Not found']} title="Investment not found" /><Empty title="Investment not found">No investment has the code {code}. <Link to="/admin/investments">Back to the register</Link></Empty></>;
-  const { i, investor, bal, accruals, payouts, ledger, amendments, plan, names } = q.data;
+  const { i, investor, bal, accruals, payouts, ledger, amendments, plan, names, introducedBy } = q.data;
   const t = today();
   const pending = i.status === 'pending_funding';
   const closed = i.status === 'redeemed' || i.status === 'cancelled';
@@ -371,7 +379,7 @@ export function InvestmentDetail() {
       <div className="kpis">
         <Kpi label="Principal" value={money(i.principal)} sub="Original, never changes" />
         <Kpi label="Investor monthly return" value={money(i.monthly_return)}
-          sub={Number(i.admin_bonus || 0) > 0 ? `${rate(i.investor_rate ?? i.monthly_rate)} · + ${money(i.admin_bonus)} admin bonus (${rate(i.admin_bonus_rate || 0)})` : `${rate(i.monthly_rate)} × principal`} />
+          sub={Number(i.admin_bonus || 0) > 0 ? `${rate(i.investor_rate ?? i.monthly_rate)} · + ${money(i.admin_bonus)} (${rate(i.admin_bonus_rate || 0)}) to ${introducedBy ? nm(introducedBy) : 'no admin set'}` : `${rate(i.monthly_rate)} × principal`} />
         <Kpi label="Accrued to date" value={money(bal?.accrued || 0)} sub={`${bal?.periods_accrued || 0} of ${i.lockin_months} periods`} tip="Sum of accrual entries, net of reversals." />
         <Kpi label="Paid (confirmed)" value={money(bal?.paid || 0)} cls="pos" sub={`${paidCount} payout${paidCount === 1 ? '' : 's'}`} />
         <Kpi label="Outstanding" value={money(outstanding)} sub={Number(bal?.processing || 0) ? `${money(bal!.processing)} processing` : 'Accrued, not yet paid'} subCls={outstanding ? 'warn' : ''} />
@@ -447,7 +455,8 @@ export function InvestmentDetail() {
               <dl className="kv">
                 <dt>Plan rate</dt><dd>{rate(i.monthly_rate)}</dd>
                 {Number(i.admin_bonus || 0) > 0 && <><dt>Investor ROI</dt><dd>{rate(i.investor_rate ?? i.monthly_rate)} <span className="muted">(shown to the investor)</span></dd>
-                  <dt>Admin bonus</dt><dd>{rate(i.admin_bonus_rate || 0)} · {money(i.admin_bonus)} / month</dd></>}
+                  <dt>Admin bonus</dt><dd>{rate(i.admin_bonus_rate || 0)} · {money(i.admin_bonus)} / month</dd>
+                  <dt>Bonus goes to</dt><dd>{introducedBy ? <b>{nm(introducedBy)}</b> : <span className="muted">No admin set. Set “Introduced by” on the investor.</span>}</dd></>}
                 <dt>Method</dt><dd>Simple interest</dd>
                 <dt>Plan</dt><dd>{plan ? <Link to={'/admin/plans/' + plan.code}>{i.plan_name}</Link> : i.plan_name} · v{i.plan_version}</dd>
                 <dt>Lock-in</dt><dd>{lockinText(i.lockin_months)}</dd>

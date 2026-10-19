@@ -16,6 +16,12 @@ Choose **Super Admin** or **Investor** on the sign-in page, then enter the email
 |------|-------|----------|
 | Super Admin | chaitra@parvarealty.ae | Parva@2026 |
 | Investor (sample) | ananya.rao@example.com | Investor@2026 |
+| Super Admin (introducer) | ravi.kumar@example.com | Admin@2026 |
+| Super Admin (introducer) | priya.sharma@example.com | Admin@2026 |
+| Super Admin (introducer) | suresh.gowda@example.com | Admin@2026 |
+
+The introducers are the admins who brought in the sample investors, so the admin bonus on those investments goes to them:
+Chaitra → Ananya Rao · Ravi → Rahul Menon, Vikram Iyer, Kavya Reddy · Priya → Fatima Shaikh, Arjun Nair · Suresh → Meera Kapoor, Sana Qureshi.
 
 The Super Admin can add investors and other admins with a temporary password, and reset passwords from the investor's page.
 

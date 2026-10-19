@@ -27,7 +27,7 @@ function maskId(v: string): string {
 const outstandingOf = (b?: Balance) => (b ? Number(b.unapproved) + Number(b.approved) + Number(b.processing) : 0);
 const fmtBytes = (n: number) => (n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
 
-interface Row extends Profile { principal: number; unlocked: number; accrued: number; paid: number; next: string | null; branch: string }
+interface Row extends Profile { principal: number; unlocked: number; accrued: number; paid: number; next: string | null; branch: string; introducer: string }
 
 export const loadBranches = async () => must(await api.from('branches').select('*').order('name')) as Branch[];
 
@@ -43,6 +43,8 @@ export function Investors() {
       fetchAll<Balance>((a, b) => api.from('investment_balances').select('*').range(a, b)),
       loadBranches()
     ]);
+    const admins = await loadAdmins();
+    const an = new Map(admins.map(a => [a.id, a.full_name || a.email]));
     const bn = new Map(branches.map(b => [b.id, b.name]));
     const bm = new Map(bal.map(x => [x.investment_id, x]));
     const by = new Map<string, typeof invs>();
@@ -53,6 +55,7 @@ export function Investors() {
       return {
         ...p,
         branch: p.branch_id ? bn.get(p.branch_id) || '' : '',
+        introducer: p.introduced_by ? an.get(p.introduced_by) || '' : '',
         principal: live.reduce((s, i) => s + Number(i.principal), 0),
         unlocked: live.filter(i => isUnlocked(i)).reduce((s, i) => s + Number(i.principal), 0),
         accrued: m.reduce((s, i) => s + Number(bm.get(i.id)?.accrued || 0), 0),
@@ -72,6 +75,7 @@ export function Investors() {
   const cols: Col<Row>[] = useMemo(() => [
     { h: 'Investor', v: r => r.full_name, r: r => <><b>{r.full_name || '—'}</b><span className="sub">{r.code} · {r.email}</span></> },
     { h: 'Branch', v: r => r.branch || 'zz', r: r => r.branch || <span className="muted">Not assigned</span> },
+    { h: 'Introduced by', v: r => r.introducer || 'zz', r: r => r.introducer || <span className="muted">No admin set</span> },
     { h: 'Phone', v: r => r.phone, r: r => <span className="num">{r.phone || '—'}</span> },
     { h: 'Registered', v: r => r.created_at, r: r => date(r.created_at) },
     { h: 'Verification', v: r => r.kyc_status, r: r => <KycBadge k={r.kyc_status} /> },
@@ -84,8 +88,8 @@ export function Investors() {
   ], []);
 
   const exportCsv = () => downloadCsv(`investors-${today()}`,
-    ['Investor ID', 'Name', 'Email', 'Branch', 'Phone', 'City', 'Registered', 'KYC', 'Account', 'Principal (live)', 'Unlocked principal', 'Accrued', 'Paid', 'Next unlock'],
-    rows.map(r => [r.code, r.full_name, r.email, r.branch, r.phone, r.city, r.created_at.slice(0, 10), r.kyc_status, r.account_status, r.principal, r.unlocked, r.accrued, r.paid, r.next || '']));
+    ['Investor ID', 'Name', 'Email', 'Branch', 'Introduced by', 'Phone', 'City', 'Registered', 'KYC', 'Account', 'Principal (live)', 'Unlocked principal', 'Accrued', 'Paid', 'Next unlock'],
+    rows.map(r => [r.code, r.full_name, r.email, r.branch, r.introducer, r.phone, r.city, r.created_at.slice(0, 10), r.kyc_status, r.account_status, r.principal, r.unlocked, r.accrued, r.paid, r.next || '']));
 
   return (
     <>
@@ -200,7 +204,7 @@ function AddInvestor({ onClose, onDone }: { onClose: () => void; onDone: (code: 
           <Field label="Email *" err={tried ? errs.email : null}><input className={'input ' + (tried && errs.email ? 'bad' : '')} type="email" value={f.email} onChange={set('email')} /></Field>
           <Field label="Phone"><input className="input" value={f.phone} onChange={set('phone')} /></Field>
         </div>
-        <Field label="Introduced by (admin)" hint="The admin who brought this investor in. On the 6% plan they receive 2% as an admin bonus. The investor never sees this.">
+        <Field label="Introduced by (admin)" hint="The admin who brought this investor in. They get a bonus out of the plan rate: 0.5% on the 2% plan, 1% on the 3.3% plan, 2% on the 6% plan. The investor never sees this.">
           <select className="input" value={introducedBy} onChange={e => setIntroducedBy(e.target.value)}>
             {(aq.data || []).filter(a => a.account_status === 'active' || a.id === introducedBy).map(a => <option key={a.id} value={a.id}>{a.full_name || a.email}{a.code ? ' · ' + a.code : ''}</option>)}
           </select>

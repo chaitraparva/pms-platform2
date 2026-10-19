@@ -12,6 +12,8 @@ export const ADMIN_EMAIL = 'chaitra@parvarealty.ae';
 export const ADMIN_PASSWORD = 'Parva@2026';
 export const INVESTOR_EMAIL = 'ananya.rao@example.com';
 export const INVESTOR_PASSWORD = 'Investor@2026';
+/** Password of the sample introducer admins (Ravi, Priya, Suresh). */
+export const INTRODUCER_PASSWORD = 'Admin@2026';
 
 /* ---------- IndexedDB plumbing ---------- */
 function idb(): Promise<IDBDatabase> {
@@ -694,9 +696,30 @@ function profileRow(id: string, email: string, name: string, code: string, role:
     created_at: x.created_at || nowIso(), updated_at: nowIso() };
 }
 
+/* ---------- sample introducers: admins who brought in the sample investors and receive their bonus ---------- */
+const SAMPLE_INTRODUCERS: [string, string, string][] = [
+  ['Ravi Kumar', 'ravi.kumar@example.com', 'Bangalore'], ['Priya Sharma', 'priya.sharma@example.com', 'Bangalore'], ['Suresh Gowda', 'suresh.gowda@example.com', 'Tumkur']
+];
+/** Who introduced each sample investor: 0 = the main admin, 1-3 = the sample introducers above. */
+const SAMPLE_INTRODUCED_BY: Record<string, number> = {
+  [INVESTOR_EMAIL]: 0, 'rahul.menon@example.com': 1, 'fatima.shaikh@example.com': 2, 'vikram.iyer@example.com': 1,
+  'meera.kapoor@example.com': 3, 'arjun.nair@example.com': 2, 'sana.qureshi@example.com': 3, 'kavya.reddy@example.com': 1
+};
+async function addSampleIntroducers(): Promise<string[]> {
+  const ids: string[] = [];
+  for (const [i, [name, email, city]] of SAMPLE_INTRODUCERS.entries()) {
+    const id = uuid();
+    S.users.push({ id, email, pw: await hash(INTRODUCER_PASSWORD) });
+    T('profiles').push(profileRow(id, email, name, 'ADM-' + nextSeq('admin', 1), 'super_admin', 'verified',
+      { city, phone: '+91 99860 ' + String(20000 + i * 4111).slice(-5), created_at: addMonths(today(), -13) + 'T09:30:00Z' }));
+    ids.push(id);
+  }
+  return ids;
+}
+
 /* ---------- first run: Parva Realty setup plus a small set of sample investors ---------- */
 async function seed(): Promise<Store> {
-  S = { v: 2, tables: Object.fromEntries(TABLES.map(t => [t, []])), seq: {}, users: [] };
+  S = { v: 4, tables: Object.fromEntries(TABLES.map(t => [t, []])), seq: {}, users: [] };
   T('settings').push({ id: 1, company_name: 'Parva Realty', tagline: 'Every investment, return and maturity in one place.', logo_url: null, primary_color: '#0F2147', currency: 'INR', locale: 'en-IN',
     timezone: 'Asia/Kolkata', approaching_days: 60, request_window_days: 30, default_payout_lag_days: 3, four_eyes: true, allow_custom_lockin: false, lockin_options: [6, 12],
     default_terms: 'Returns are simple interest on the original principal at the monthly rate in this agreement. Unpaid returns are not added to principal.',
@@ -706,6 +729,7 @@ async function seed(): Promise<Store> {
   S.users.push({ id: adminId, email: ADMIN_EMAIL, pw: await hash(ADMIN_PASSWORD) });
   T('profiles').push(profileRow(adminId, ADMIN_EMAIL, 'Chaitra', 'ADM-' + nextSeq('admin', 1), 'super_admin', 'verified', { created_at: addMonths(today(), -13) + 'T09:00:00Z' }));
   currentUid = adminId;
+  const introducers = [adminId, ...await addSampleIntroducers()];
   const br = ([['TMK', 'Tumkur'], ['BLR', 'Bangalore']] as [string, string][]).map(([code, name]) => { const id = uuid(); T('branches').push({ id, code, name, city: name, status: 'active', created_by: adminId, created_at: nowIso(), updated_at: nowIso() }); return id; });
   const start = addMonths(today(), -12);
   const plans = ([['P2', '2% Monthly Plan', 2], ['P33', '3.3% Monthly Plan', 3.3], ['P6', '6% Monthly Plan', 6]] as [string, string, number][]).map(([code, name, rate]) => {
@@ -723,7 +747,7 @@ async function seed(): Promise<Store> {
     const id = uuid();
     S.users.push({ id, email, pw: await hash(i === 0 ? INVESTOR_PASSWORD : uuid()) });
     T('profiles').push(profileRow(id, email, name, 'INVR-' + nextSeq('investor', 1001), 'investor', i === 7 ? 'pending' : 'verified',
-      { city, phone: '+91 98450 ' + String(10000 + i * 1373).slice(-5), branch_id: br[b], bank_name: ['HDFC', 'ICICI', 'SBI', 'Axis'][i % 4], bank_account_masked: '••••' + (4021 + i * 37), bank_ifsc: ['HDFC0001234', 'ICIC0004567', 'SBIN0007890', 'UTIB0001122'][i % 4], introduced_by: adminId, created_at: addMonths(today(), -12 + i) + 'T10:00:00Z' }));
+      { city, phone: '+91 98450 ' + String(10000 + i * 1373).slice(-5), branch_id: br[b], bank_name: ['HDFC', 'ICICI', 'SBI', 'Axis'][i % 4], bank_account_masked: '••••' + (4021 + i * 37), bank_ifsc: ['HDFC0001234', 'ICIC0004567', 'SBIN0007890', 'UTIB0001122'][i % 4], introduced_by: introducers[SAMPLE_INTRODUCED_BY[email] ?? 0], created_at: addMonths(today(), -12 + i) + 'T10:00:00Z' }));
     return id;
   }));
   // [investor, plan, lock-in, principal, months ago it started]
@@ -821,6 +845,23 @@ export function ready(): Promise<void> {
         });
         T('investments').forEach(i => { if (i.investor_rate === undefined) applySplit(i); });
         S.v = 2; save();
+      }
+      // v3: the 2% and 3.3% plans are split too (2% = 1.5% + 0.5%, 3.3% = 2.3% + 1%). Returns already accrued stay as they were;
+      // the new split applies from the next monthly accrual.
+      if ((S.v || 1) < 3) { T('investments').forEach(i => applySplit(i)); S.v = 3; save(); }
+      // v4: sample introducers. The sample investors are spread across a few admins so the bonus shows going to each of them.
+      if ((S.v || 1) < 4) {
+        const sample = T('profiles').filter(p => p.role === 'investor' && p.email in SAMPLE_INTRODUCED_BY);
+        if (sample.length && !T('profiles').some(p => p.email === SAMPLE_INTRODUCERS[0][1])) {
+          const main = T('profiles').find(p => p.role === 'super_admin' && p.email === ADMIN_EMAIL)?.id ?? null;
+          const introducers = [main, ...await addSampleIntroducers()];
+          sample.forEach(p => {
+            const by = introducers[SAMPLE_INTRODUCED_BY[p.email]] ?? main;
+            p.introduced_by = by;
+            T('admin_bonuses').forEach(b => { if (b.investor_id === p.id) b.admin_id = by; });
+          });
+        }
+        S.v = 4; save();
       }
     }
     else { S = await seed(); save(); }

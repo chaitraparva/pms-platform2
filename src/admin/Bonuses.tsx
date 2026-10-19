@@ -129,7 +129,7 @@ export function Bonuses() {
                 {tab === 'accrued' && <button className="btn primary sm" disabled={!chosen.length} onClick={() => { setPaying(true); setRef(''); setErr(null); }}>Mark paid</button>}
               </>}
               emptyTitle={all.length ? 'No bonuses here' : 'No admin bonus yet'}
-              empty={all.length ? 'Try another tab or admin.' : 'A bonus is added every month an investment on the 6% plan accrues its return.'} />
+              empty={all.length ? 'Try another tab or admin.' : 'A bonus is added every month an investment accrues its return.'} />
           </div>
         </>
       )}
