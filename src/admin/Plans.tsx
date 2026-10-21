@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, rpc, must, fetchAll } from '../lib/api';
 import { useQuery, refreshAll } from '../lib/useQuery';
 import { useSettings } from '../lib/auth';
-import { money, moneyShort, date, dateShort, dateTime, lockinText, rate, rateShort, today, monthlyReturn } from '../lib/format';
+import { money, moneyShort, date, dateShort, dateTime, lockinText, rate, rateShort, today, monthlyReturn, STANDARD_RATES } from '../lib/format';
 import type { Plan, PlanVersion, PlanStatus, Investment, Profile, EarlyRedemption, Settings } from '../lib/types';
 import { DataTable } from '../ui/DataTable';
 import { Empty, ErrorNote, Loading, PageHead, InvBadge, Badge, Drawer, Modal, Field, useAction } from '../ui/kit';
@@ -14,7 +14,7 @@ const PLAN_BADGE: Record<PlanStatus, [string, string]> = { active: ['Active', 'b
 const PlanBadge = ({ s }: { s: PlanStatus }) => <Badge cls={PLAN_BADGE[s][1]}>{PLAN_BADGE[s][0]}</Badge>;
 
 const lockins = (v: PlanVersion) => v.lockin_options.slice().sort((a, b) => a - b).map(lockinText).join(' or ') + (v.allow_custom_lockin ? ' + custom' : '');
-const STANDARD_RATES = [2, 3.3, 6];
+
 interface Flag { investment_id: string; code: string; investor: string; reason: string }
 
 type InvLite = Pick<Investment, 'id' | 'plan_id' | 'principal' | 'status'>;

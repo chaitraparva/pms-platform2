@@ -206,7 +206,7 @@ export function Overview() {
             ? <Donut parts={rates.map((r, i) => ({ name: `${rateShort(r.rate)} monthly`, value: Number(r.investors), color: rateColor(r.rate, i), sub: moneyShort(r.principal) }))}
                 fmt={v => `${v} investor${v === 1 ? '' : 's'}`} center1="Investors" center2={String(d.investors_with_investments)} label="Investors across the ROI plans"
                 onPart={ix => nav('/admin/investments?rate=' + rates[ix].rate + branchCode)} />
-            : <Empty title="No live investments yet">{planCount ? 'The 2%, 3.3% and 6% split appears once deposits are confirmed.' : <><span>Create the 2%, 3.3% and 6% plans to get started.</span><Link to="/admin/plans">Plans</Link></>}</Empty>}
+            : <Empty title="No live investments yet">{planCount ? 'The split by plan appears once deposits are confirmed.' : <><span>Create the 2%, 3.3%, 4%, 5% and 6% plans to get started.</span><Link to="/admin/plans">Plans</Link></>}</Empty>}
           <p className="hint" style={{ marginTop: 8 }}>Click a plan to see its investments. An investor with investments at two rates counts under both.</p>
         </div></div>
         <div className="card"><div className="card-h"><h3>Locked vs unlocked principal</h3>

@@ -6,7 +6,7 @@ import { useAuth, useSettings } from '../lib/auth';
 import { createUser, resetUserPassword } from '../lib/adminApi';
 import { uploadDocument, openDocument, deleteDocument } from '../lib/docs';
 import { downloadCsv } from '../lib/csv';
-import { money, date, dateTime, initials, isUnlocked, lockinText, rate, today, LEDGER_TYPE } from '../lib/format';
+import { bonusSplitText, money, date, dateTime, initials, isUnlocked, lockinText, rate, today, LEDGER_TYPE } from '../lib/format';
 import type { AuditLog, Branch, Profile, Investment, Balance, LedgerEntry, DocumentRow, KycStatus, Payout } from '../lib/types';
 import { DataTable, Col } from '../ui/DataTable';
 import { Kpi, Empty, ErrorNote, Loading, PageHead, KycBadge, AcctBadge, InvBadge, LedgerBadge, Drawer, Modal, Field, useAction, Badge, PayBadge } from '../ui/kit';
@@ -212,7 +212,7 @@ function AddInvestor({ onClose, onDone }: { onClose: () => void; onDone: (code: 
           <Field label="Email *" err={tried ? errs.email : null}><input className={'input ' + (tried && errs.email ? 'bad' : '')} type="email" value={f.email} onChange={set('email')} /></Field>
           <Field label="Phone"><input className="input" value={f.phone} onChange={set('phone')} /></Field>
         </div>
-        <Field label="Introduced by" hint="Who brought this investor in: a Super Admin, or an investor allowed to add investors. They get a bonus out of the plan rate: 0.5% on the 2% plan, 1% on the 3.3% plan, 2% on the 6% plan. The investor never sees this.">
+        <Field label="Introduced by" hint={`Who brought this investor in: a Super Admin, or an investor allowed to add investors. They get a bonus out of the plan rate: ${bonusSplitText()}. The investor never sees this.`}>
           <select className="input" value={introducedBy} onChange={e => setIntroducedBy(e.target.value)}>
             {(aq.data || []).filter(a => a.account_status === 'active' || a.id === introducedBy).map(a => <option key={a.id} value={a.id}>{introLabel(a)}</option>)}
           </select>
@@ -511,7 +511,7 @@ function IntroduceDialog({ p, count, onClose }: { p: Profile; count: number; onC
   };
   return (
     <Modal title={on ? `Allow ${p.full_name || p.email} to add investors?` : `Stop ${p.full_name || p.email} adding investors?`}
-      sub={on ? 'They get an “Add investor” button in their portal. People they add wait for you to verify KYC and confirm the deposit. They earn the bonus on those investors’ investments: 0.5% of the 2% plan, 1% of the 3.3% plan, 2% of the 6% plan.'
+      sub={on ? 'They get an “Add investor” button in their portal. People they add wait for you to verify KYC and confirm the deposit. They earn the bonus on those investors’ investments: ' + bonusSplitText() + '.'
         : `They can no longer add new investors. The ${count} investor${count === 1 ? '' : 's'} they already brought in stay with them, and so does the bonus on those investments.`}
       onClose={onClose}
       foot={<><button className="btn ghost" onClick={onClose}>Cancel</button><button className={'btn ' + (on ? 'primary' : 'danger')} onClick={go} disabled={act.busy}>{on ? 'Allow' : 'Stop'}</button></>}>

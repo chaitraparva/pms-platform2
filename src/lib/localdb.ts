@@ -2,7 +2,7 @@
 // On-device database. Tables live in memory and are saved to this browser's localStorage; uploaded
 // files (brochures, documents, photos) are too large for localStorage and are kept in IndexedDB.
 // Every money-moving action below follows the original database rules.
-import { splitRate, investorPlanName } from './format';
+import { splitRate, investorPlanName, STANDARD_PLANS, STANDARD_RATES } from './format';
 
 type Row = Record<string, any>;
 interface Store { v: number; tables: Record<string, Row[]>; seq: Record<string, number>; users: { id: string; email: string; pw: string }[] }
@@ -504,7 +504,7 @@ export function rpcCall(fn: string, a: Row): unknown {
     case 'admin_set_plan_status': setPlanStatus(a.p_plan, a.p_status, a.p_reason); touched('plans'); return null;
     case 'admin_create_standard_plans': {
       requireAdmin(); let n = 0;
-      ([['P2', '2% Monthly Plan', 2], ['P33', '3.3% Monthly Plan', 3.3], ['P6', '6% Monthly Plan', 6]] as [string, string, number][]).forEach(([code, name, rate]) => {
+      STANDARD_PLANS.forEach(([code, name, rate]) => {
         const exists = T('plans').some(p => p.code === code) || T('plans').some(p => p.status !== 'archived' && T('plan_versions').some(v => v.plan_id === p.id && v.version === p.current_version && Number(v.monthly_rate) === rate));
         if (exists) return;
         const id = createPlan(code, name, `Simple monthly return of ${rate}% on the original principal, paid monthly.`, { monthly_rate: rate, min_amount: 1, max_amount: 999999999999, lockin_options: [6, 12], eligible_from: today(), effective_from: today() });
@@ -605,7 +605,7 @@ export function rpcCall(fn: string, a: Row): unknown {
       requireAdmin();
       return T('investments').filter(i => !['cancelled', 'redeemed'].includes(i.status)).map(i => {
         const p = T('profiles').find(x => x.id === i.investor_id) || {} as Row;
-        const r = [![2, 3.3, 6].includes(Number(i.monthly_rate)) ? `Rate ${Number(i.monthly_rate)}% is not one of 2%, 3.3%, 6%` : '', ![6, 12].includes(i.lockin_months) ? `Lock-in of ${i.lockin_months} months` : '',
+        const r = [!STANDARD_RATES.includes(Number(i.monthly_rate)) ? `Rate ${Number(i.monthly_rate)}% is not one of ${STANDARD_RATES.map(r => r + '%').join(', ')}` : '', ![6, 12].includes(i.lockin_months) ? `Lock-in of ${i.lockin_months} months` : '',
           !p.branch_id ? 'Investor has no branch' : '', ['active', 'matured'].includes(i.status) && !i.start_date ? 'Missing start date' : ''].filter(Boolean);
         return r.length ? { investment_id: i.id, code: i.code, investor: p.full_name || p.email, reason: r.join('; ') } : null;
       }).filter(Boolean).sort((x: any, y: any) => x.code.localeCompare(y.code));
@@ -805,7 +805,7 @@ async function seed(): Promise<Store> {
   try { return await seedData(); } finally { seeding = false; }
 }
 async function seedData(): Promise<Store> {
-  S = { v: 5, tables: Object.fromEntries(TABLES.map(t => [t, []])), seq: {}, users: [] };
+  S = { v: 6, tables: Object.fromEntries(TABLES.map(t => [t, []])), seq: {}, users: [] };
   T('settings').push({ id: 1, company_name: 'Parva Realty', tagline: 'Every investment, return and maturity in one place.', logo_url: null, primary_color: '#0F2147', currency: 'INR', locale: 'en-IN',
     timezone: 'Asia/Kolkata', approaching_days: 60, request_window_days: 30, default_payout_lag_days: 3, four_eyes: true, allow_custom_lockin: false, lockin_options: [6, 12],
     default_terms: 'Returns are simple interest on the original principal at the monthly rate in this agreement. Unpaid returns are not added to principal.',
@@ -818,7 +818,7 @@ async function seedData(): Promise<Store> {
   const introducers = [adminId, ...await addSampleIntroducers()];
   const br = ([['TMK', 'Tumkur'], ['BLR', 'Bangalore']] as [string, string][]).map(([code, name]) => { const id = uuid(); T('branches').push({ id, code, name, city: name, status: 'active', created_by: adminId, created_at: nowIso(), updated_at: nowIso() }); return id; });
   const start = addMonths(today(), -12);
-  const plans = ([['P2', '2% Monthly Plan', 2], ['P33', '3.3% Monthly Plan', 3.3], ['P6', '6% Monthly Plan', 6]] as [string, string, number][]).map(([code, name, rate]) => {
+  const plans = STANDARD_PLANS.map(([code, name, rate]) => {
     const id = createPlan(code, name, `Simple monthly return of ${rate}% on the original principal, paid monthly.`, { monthly_rate: rate, min_amount: 100000, max_amount: 50000000, lockin_options: [6, 12], eligible_from: start, effective_from: start });
     setPlanStatus(id, 'active', 'Standard plan published'); return id;
   });
@@ -842,15 +842,16 @@ async function seedData(): Promise<Store> {
     if (SAMPLE_BY_INVESTOR.includes(p.email)) p.introduced_by = ids[0];
   });
   // [investor, plan, lock-in, principal, months ago it started]
+  const P = [0, 1, 4]; // the sample book was written for 2%, 3.3% and 6% (positions in STANDARD_PLANS)
   const book: [number, number, number, number, number][] = [
     [0, 1, 12, 500000, 7], [0, 0, 6, 200000, 4], [1, 2, 12, 1000000, 11], [1, 1, 12, 500000, 3], [2, 0, 12, 500000, 10], [3, 1, 6, 300000, 8],
     [4, 1, 6, 750000, 5], [4, 2, 12, 1500000, 2], [5, 1, 12, 1500000, 9], [6, 2, 12, 2500000, 6], [6, 0, 6, 300000, 1]
   ];
   book.forEach(([who, plan, lock, amt, ago], k) => {
-    const id = recordInvestment({ p_investor: ids[who], p_plan: plans[plan], p_lockin_months: lock, p_principal: amt, p_agreement_ref: 'AGR-' + (2001 + k), p_deposit_ref: '' });
+    const id = recordInvestment({ p_investor: ids[who], p_plan: plans[P[plan]], p_lockin_months: lock, p_principal: amt, p_agreement_ref: 'AGR-' + (2001 + k), p_deposit_ref: '' });
     activateInvestment(id, addDays(addMonths(today(), -ago), -((k * 3) % 9)), 'UTR ' + (58120000 + k * 7919), 'Deposit confirmed');
   });
-  recordInvestment({ p_investor: ids[5], p_plan: plans[0], p_lockin_months: 6, p_principal: 250000, p_agreement_ref: 'AGR-2099', p_deposit_ref: '' });
+  recordInvestment({ p_investor: ids[5], p_plan: plans[P[0]], p_lockin_months: 6, p_principal: 250000, p_agreement_ref: 'AGR-2099', p_deposit_ref: '' });
   // Older returns have been paid out; the latest ones are still with the team.
   const t = today();
   T('payouts').forEach(p => {
@@ -968,6 +969,22 @@ export function ready(): Promise<void> {
           if (rahul) rahul.pw = await hash(INVESTOR_PASSWORD);
         }
         S.v = 5; save();
+      }
+      // v6: 4% (3% + 1%) and 5% (3.5% + 1.5%) plans, added and published for browsers that already have data
+      if ((S.v || 1) < 6) {
+        const main = T('profiles').find(p => p.role === 'super_admin' && p.account_status === 'active');
+        if (main) {
+          const prev = currentUid; currentUid = main.id; seeding = true;
+          try {
+            STANDARD_PLANS.filter(([, , rate]) => rate === 4 || rate === 5).forEach(([code, name, rate]) => {
+              const has = T('plans').some(p => p.code === code) || T('plans').some(p => p.status !== 'archived' && T('plan_versions').some(v => v.plan_id === p.id && v.version === p.current_version && Number(v.monthly_rate) === rate));
+              if (has) return;
+              const id = createPlan(code, name, `Simple monthly return of ${rate}% on the original principal, paid monthly.`, { monthly_rate: rate, min_amount: 100000, max_amount: 50000000, lockin_options: [6, 12], eligible_from: today(), effective_from: today() });
+              setPlanStatus(id, 'active', 'Standard plan published');
+            });
+          } finally { currentUid = prev; seeding = false; }
+        }
+        S.v = 6; save();
       }
     }
     else { S = await seed(); save(); }

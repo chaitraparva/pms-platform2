@@ -108,7 +108,7 @@ export const INV_BADGE: Record<string, string> = {
 };
 /** Lock-in period in words: 6 months, 1 year (12 months). */
 export const lockinText = (m: number) => (m === 12 ? '1 year (12 months)' : m % 12 === 0 ? `${m / 12} years (${m} months)` : `${m} months`);
-/** Monthly rate as a short label: 2%, 3.3%, 6%. */
+/** Monthly rate as a short label: 2%, 3.3%, 4%, 5%, 6%. */
 export const rateShort = (r: number | string) => String(Number(Number(r).toFixed(4))) + '%';
 export const PAY_BADGE: Record<string, [string, string]> = {
   accrued: ['Accrued', 'b-grey'], approved: ['Approved', 'b-blue'], processing: ['Processing', 'b-amber'], paid: ['Paid', 'b-green'], failed: ['Failed', 'b-red'], cancelled: ['Reversed', 'b-grey']
@@ -124,8 +124,15 @@ export const LEDGER_TYPE: Record<string, string> = {
 /* ---------- admin bonus split ----------
    On every plan part of the monthly rate goes to the admin who introduced the investor instead of the investor.
    The total paid out stays the plan rate:
-   2% plan = 1.5% investor + 0.5% admin · 3.3% plan = 2.3% investor + 1% admin · 6% plan = 4% investor + 2% admin. */
-export const ADMIN_BONUS_SPLIT: Record<string, number> = { '2': 0.5, '3.3': 1, '6': 2 };
+   2% = 1.5% + 0.5% · 3.3% = 2.3% + 1% · 4% = 3% + 1% · 5% = 3.5% + 1.5% · 6% = 4% + 2% (investor + introducer). */
+export const ADMIN_BONUS_SPLIT: Record<string, number> = { '2': 0.5, '3.3': 1, '4': 1, '5': 1.5, '6': 2 };
+/** The standard plans: [code, name, monthly rate]. */
+export const STANDARD_PLANS: [string, string, number][] = [
+  ['P2', '2% Monthly Plan', 2], ['P33', '3.3% Monthly Plan', 3.3], ['P4', '4% Monthly Plan', 4], ['P5', '5% Monthly Plan', 5], ['P6', '6% Monthly Plan', 6]
+];
+export const STANDARD_RATES = STANDARD_PLANS.map(p => p[2]);
+/** "0.5% of the 2% plan, 1% of the 3.3% plan, …" for help texts. */
+export const bonusSplitText = () => Object.entries(ADMIN_BONUS_SPLIT).sort((a, b) => Number(a[0]) - Number(b[0])).map(([r, b]) => `${b}% of the ${r}% plan`).join(', ');
 /** The investor's share and the admin's bonus share of a plan's monthly rate. */
 export function splitRate(planRate: number | string): { investor: number; bonus: number } {
   const r = Number(planRate), bonus = ADMIN_BONUS_SPLIT[String(r)] || 0;

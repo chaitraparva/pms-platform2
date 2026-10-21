@@ -7,7 +7,7 @@ import { api, rpc, must, fetchAll } from '../lib/api';
 import { useQuery, refreshAll } from '../lib/useQuery';
 import { useSettings } from '../lib/auth';
 import { downloadCsv } from '../lib/csv';
-import { date, isUnlocked, lockinText, money, moneyShort, rateShort, today } from '../lib/format';
+import { date, isUnlocked, lockinText, money, moneyShort, rateShort, today, STANDARD_RATES } from '../lib/format';
 import type { Balance, Branch, BranchStats, Dashboard, Investment, Profile, RateSplit } from '../lib/types';
 import { DataTable, Col } from '../ui/DataTable';
 import { Badge, Empty, ErrorNote, Field, InvBadge, Kpi, Loading, Modal, PageHead, useAction } from '../ui/kit';
@@ -15,13 +15,13 @@ import { Donut, CHART_COLORS } from '../ui/Charts';
 import { Icon } from '../ui/Icon';
 
 const LIVE = ['active', 'matured', 'redemption_requested', 'redemption_processing'];
-export const RATE_COLORS: Record<string, string> = { '2': 'var(--chart-3)', '3.3': 'var(--chart-2)', '6': 'var(--chart-1)' };
+export const RATE_COLORS: Record<string, string> = { '2': 'var(--chart-3)', '3.3': 'var(--chart-2)', '4': '#0EA5A4', '5': '#6366F1', '6': 'var(--chart-1)' };
 export const rateColor = (r: number | string, i: number) => RATE_COLORS[String(Number(r))] || CHART_COLORS[(i + 3) % CHART_COLORS.length];
 
-/** 2%, 3.3% and 6% always shown (with zero when empty); any other historical rate is listed too. */
+/** The standard rates (2%, 3.3%, 4%, 5%, 6%) always shown (with zero when empty); any other historical rate is listed too. */
 export function withStandardRates(list: RateSplit[]): RateSplit[] {
-  const out = [2, 3.3, 6].map(r => list.find(x => Number(x.rate) === r) || { rate: r, investors: 0, principal: 0, count: 0 });
-  return [...out, ...list.filter(x => ![2, 3.3, 6].includes(Number(x.rate)))];
+  const out = STANDARD_RATES.map(r => list.find(x => Number(x.rate) === r) || { rate: r, investors: 0, principal: 0, count: 0 });
+  return [...out, ...list.filter(x => !STANDARD_RATES.includes(Number(x.rate)))];
 }
 
 export function RateRows({ rates, by = 'investors' }: { rates: RateSplit[]; by?: 'investors' | 'principal' }) {
