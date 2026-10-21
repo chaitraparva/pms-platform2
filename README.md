@@ -41,7 +41,7 @@ On Vercel, import the repository with the Vite preset. No environment variables 
 The Super Admin can allow any investor to add investors (investor page → **Allow adding investors**).
 That investor gets an **Add investor** button and a **My investors** section below their own investments:
 the investors they brought in, those investors' investments, and the bonus they earn from them
-(0.5% of the 2% plan, 1% of the 3.3% plan, 1% of the 4% plan, 1.5% of the 5% plan, 2% of the 6% plan). People they add wait for the Super Admin to verify KYC
+(the bonus % the Super Admin sets on each plan under Investment Plans). People they add wait for the Super Admin to verify KYC
 and confirm the deposit. The investors they bring in only ever see their own investment and returns.
 The Super Admin sees who brought in whom on every investor and investment, and pays the bonus from **Introducer Bonus**.
 

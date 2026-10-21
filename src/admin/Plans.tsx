@@ -84,6 +84,7 @@ export function Plans() {
                       <div><div style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-.02em' }} className="num">{rateShort(cur.monthly_rate)}</div><div className="hint">per month · simple interest on principal</div></div>
                       {p.description && <p className="muted" style={{ fontSize: 13 }}>{p.description}</p>}
                       <dl className="kv">
+                        <dt>Introducer bonus</dt><dd>{Number(cur.bonus_rate || 0) > 0 ? `${rateShort(cur.bonus_rate || 0)} · investor gets ${rateShort(Number(cur.monthly_rate) - Number(cur.bonus_rate || 0))}` : 'None'}</dd>
                         <dt>Investment range</dt><dd>{moneyShort(cur.min_amount)} – {moneyShort(cur.max_amount)}</dd>
                         <dt>Lock-in</dt><dd>{lockins(cur)}</dd>
                         <dt>Eligible</dt><dd>{dateShort(cur.eligible_from)} – {cur.eligible_to ? date(cur.eligible_to) : 'open-ended'}</dd>
@@ -112,20 +113,20 @@ export function Plans() {
 
 /* =============================== FORM =============================== */
 interface FormState {
-  name: string; code: string; description: string; monthly_rate: string; min_amount: string; max_amount: string;
+  name: string; code: string; description: string; monthly_rate: string; bonus_rate: string; min_amount: string; max_amount: string;
   lockins: number[]; allow_custom_lockin: boolean; eligible_from: string; eligible_to: string;
   early_redemption: EarlyRedemption; early_fee_pct: string; payout_lag_days: string; terms: string; risk_disclosure: string; effective_from: string;
 }
 
 function initForm(s: Settings, plan?: Plan, cur?: PlanVersion): FormState {
   if (plan && cur) return {
-    name: plan.name, code: plan.code, description: plan.description, monthly_rate: String(Number(cur.monthly_rate)), min_amount: String(Number(cur.min_amount)), max_amount: String(Number(cur.max_amount)),
+    name: plan.name, code: plan.code, description: plan.description, monthly_rate: String(Number(cur.monthly_rate)), bonus_rate: String(Number(cur.bonus_rate || 0)), min_amount: String(Number(cur.min_amount)), max_amount: String(Number(cur.max_amount)),
     lockins: cur.lockin_options.slice(), allow_custom_lockin: cur.allow_custom_lockin, eligible_from: cur.eligible_from, eligible_to: cur.eligible_to || '',
     early_redemption: cur.early_redemption, early_fee_pct: String(Number(cur.early_fee_pct)), payout_lag_days: String(cur.payout_lag_days),
     terms: cur.terms, risk_disclosure: cur.risk_disclosure, effective_from: today()
   };
   return {
-    name: '', code: '', description: '', monthly_rate: '', min_amount: '', max_amount: '', lockins: (s.lockin_options || []).slice(), allow_custom_lockin: false,
+    name: '', code: '', description: '', monthly_rate: '', bonus_rate: '0', min_amount: '', max_amount: '', lockins: (s.lockin_options || []).slice(), allow_custom_lockin: false,
     eligible_from: today(), eligible_to: '', early_redemption: 'not_permitted', early_fee_pct: '0', payout_lag_days: String(s.default_payout_lag_days),
     terms: s.default_terms, risk_disclosure: s.default_risk_disclosure, effective_from: today()
   };
@@ -160,12 +161,13 @@ function PlanForm({ plan, cur, onClose, onSaved }: { plan?: Plan; cur?: PlanVers
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setF(x => ({ ...x, [k]: v }));
   const inp = (k: keyof FormState) => (e: { target: { value: string } }) => set(k, e.target.value as never);
 
-  const r = Number(f.monthly_rate), mn = Number(f.min_amount), mx = Number(f.max_amount), lag = Number(f.payout_lag_days);
+  const r = Number(f.monthly_rate), br = Number(f.bonus_rate || 0), mn = Number(f.min_amount), mx = Number(f.max_amount), lag = Number(f.payout_lag_days);
   const options = [...new Set([...(s.lockin_options || []), ...f.lockins])].sort((a, b) => a - b);
   const errs: Record<string, string | null> = {
     name: !f.name.trim() ? 'Enter a plan name.' : null,
     code: f.code.trim() && !/^[A-Za-z0-9-]{2,20}$/.test(f.code.trim()) ? 'Letters, digits and dashes only (2–20).' : null,
     rate: !(r > 0 && r <= 100) || !/^\d+(\.\d{1,4})?$/.test(f.monthly_rate.trim()) ? 'Enter a rate above 0 and up to 100, with at most 4 decimals.' : null,
+    bonus: !/^\d+(\.\d{1,4})?$/.test((f.bonus_rate || '0').trim()) ? 'Enter a number, at most 4 decimals (0 for no bonus).' : r > 0 && br >= r ? 'The bonus must be less than the monthly ROI.' : null,
     min: !(mn > 0) ? 'Enter a minimum above zero.' : null,
     max: !(mx > 0) || mx < mn ? 'Maximum must be at least the minimum.' : null,
     lock: !f.lockins.length ? 'Choose at least one lock-in.' : null,
@@ -189,7 +191,7 @@ function PlanForm({ plan, cur, onClose, onSaved }: { plan?: Plan; cur?: PlanVers
     setTried(true);
     if (bad) return;
     const version = {
-      monthly_rate: r, min_amount: mn, max_amount: mx, lockin_options: f.lockins, allow_custom_lockin: s.allow_custom_lockin && f.allow_custom_lockin,
+      monthly_rate: r, bonus_rate: br, min_amount: mn, max_amount: mx, lockin_options: f.lockins, allow_custom_lockin: s.allow_custom_lockin && f.allow_custom_lockin,
       eligible_from: f.eligible_from, eligible_to: f.eligible_to || null, early_redemption: 'not_permitted',
       early_fee_pct: 0, payout_lag_days: lag, terms: f.terms, risk_disclosure: f.risk_disclosure, effective_from: f.effective_from
     };
@@ -226,7 +228,15 @@ function PlanForm({ plan, cur, onClose, onSaved }: { plan?: Plan; cur?: PlanVers
           </Field>
           <Field label="Effective from *" err={e('eff')} hint="New investments use this version from this date."><input className="input" type="date" value={f.effective_from} onChange={inp('effective_from')} /></Field>
         </div>
-        <div className="note info">{money(100000)} at this rate earns <b>{r > 0 ? money(monthlyReturn(100000, r)) : '—'}</b> per full month.</div>
+        <div className="f-row">
+          <Field label="Introducer bonus (% per month) *" err={e('bonus')} hint={`Taken out of the monthly ROI and paid to whoever introduced the investor. 0 = no bonus.${cur ? ` Currently ${Number(cur.bonus_rate || 0)}%.` : ''}`}>
+            <input className={'input ' + (e('bonus') ? 'bad' : '')} inputMode="decimal" value={f.bonus_rate} onChange={inp('bonus_rate')} placeholder="e.g. 1.5" />
+          </Field>
+          <Field label="Investor gets (% per month)" hint="Monthly ROI minus the bonus. This is what the investor sees.">
+            <input className="input" readOnly value={r > 0 && br < r ? String(Math.round((r - br) * 10000) / 10000) : '—'} />
+          </Field>
+        </div>
+        <div className="note info">{money(100000)} at this rate earns <b>{r > 0 ? money(monthlyReturn(100000, r)) : '—'}</b> per full month{r > 0 && br > 0 && br < r ? <>: <b>{money(monthlyReturn(100000, r - br))}</b> to the investor and <b>{money(monthlyReturn(100000, r) - monthlyReturn(100000, r - br))}</b> bonus to the introducer</> : ''}.</div>
         <div className="f-row">
           <Field label={`Minimum investment (${s.currency}) *`} err={e('min')}><input className={'input ' + (e('min') ? 'bad' : '')} inputMode="decimal" value={f.min_amount} onChange={inp('min_amount')} /></Field>
           <Field label={`Maximum investment (${s.currency}) *`} err={e('max')}><input className={'input ' + (e('max') ? 'bad' : '')} inputMode="decimal" value={f.max_amount} onChange={inp('max_amount')} /></Field>
@@ -335,6 +345,7 @@ export function PlanDetail() {
             {cur ? (
               <dl className="kv">
                 <dt>Monthly ROI</dt><dd>{rate(cur.monthly_rate)}</dd>
+                <dt>Introducer bonus</dt><dd>{Number(cur.bonus_rate || 0) > 0 ? <>{rate(cur.bonus_rate || 0)} <span className="muted">· investor gets {rate(Number(cur.monthly_rate) - Number(cur.bonus_rate || 0))}</span></> : <span className="muted">None</span>}</dd>
                 <dt>Calculation method</dt><dd>Simple interest on original principal</dd>
                 <dt>Compounding</dt><dd>None</dd>
                 <dt>Minimum investment</dt><dd>{money(cur.min_amount)}</dd>
@@ -361,7 +372,7 @@ export function PlanDetail() {
                 <tbody>{versions.map(v => (
                   <tr key={v.id}>
                     <td className="m">v{v.version}</td>
-                    <td>{Number(v.monthly_rate).toFixed(2)}%<span className="sub">{v.lockin_options.join(', ')} mo</span></td>
+                    <td>{Number(v.monthly_rate).toFixed(2)}%<span className="sub">bonus {Number(v.bonus_rate || 0)}% · {v.lockin_options.join(', ')} mo</span></td>
                     <td>{moneyShort(v.min_amount)} – {moneyShort(v.max_amount)}</td>
                     <td>{date(v.effective_from)}</td>
                     <td>{v.change_reason}<span className="sub">{(v.created_by && names[v.created_by]) || '—'} · {dateTime(v.created_at)}</span></td>

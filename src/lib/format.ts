@@ -121,32 +121,31 @@ export const LEDGER_TYPE: Record<string, string> = {
   redemption_request: 'Principal request (closed)', principal_redemption: 'Principal repaid', refund: 'Refund', adjustment: 'Adjustment', fee: 'Fee', reversal: 'Reversal'
 };
 
-/* ---------- admin bonus split ----------
-   On every plan part of the monthly rate goes to the admin who introduced the investor instead of the investor.
-   The total paid out stays the plan rate:
-   2% = 1.5% + 0.5% · 3.3% = 2.3% + 1% · 4% = 3% + 1% · 5% = 3.5% + 1.5% · 6% = 4% + 2% (investor + introducer). */
-export const ADMIN_BONUS_SPLIT: Record<string, number> = { '2': 0.5, '3.3': 1, '4': 1, '5': 1.5, '6': 2 };
+/* ---------- introducer bonus split ----------
+   The Super Admin sets the bonus % on each plan. That part of the monthly rate goes to whoever introduced the investor
+   instead of the investor; the total paid out stays the plan rate. */
+/** Starting bonus for the standard plans (only used to fill in new plans and older data; the Super Admin can change it). */
+export const DEFAULT_BONUS: Record<string, number> = { '2': 0.5, '3.3': 1, '4': 1, '5': 1.5, '6': 2 };
+export const defaultBonus = (planRate: number | string) => DEFAULT_BONUS[String(Number(planRate))] || 0;
 /** The standard plans: [code, name, monthly rate]. */
 export const STANDARD_PLANS: [string, string, number][] = [
   ['P2', '2% Monthly Plan', 2], ['P33', '3.3% Monthly Plan', 3.3], ['P4', '4% Monthly Plan', 4], ['P5', '5% Monthly Plan', 5], ['P6', '6% Monthly Plan', 6]
 ];
 export const STANDARD_RATES = STANDARD_PLANS.map(p => p[2]);
-/** "0.5% of the 2% plan, 1% of the 3.3% plan, …" for help texts. */
-export const bonusSplitText = () => Object.entries(ADMIN_BONUS_SPLIT).sort((a, b) => Number(a[0]) - Number(b[0])).map(([r, b]) => `${b}% of the ${r}% plan`).join(', ');
-/** The investor's share and the admin's bonus share of a plan's monthly rate. */
-export function splitRate(planRate: number | string): { investor: number; bonus: number } {
-  const r = Number(planRate), bonus = ADMIN_BONUS_SPLIT[String(r)] || 0;
+/** The investor's share and the introducer's bonus share of a plan's monthly rate. */
+export function splitRate(planRate: number | string, bonusRate: number | string | null | undefined): { investor: number; bonus: number } {
+  const r = Number(planRate), bonus = Math.max(0, Math.min(r, Number(bonusRate || 0)));
   return { investor: Math.round((r - bonus) * 10000) / 10000, bonus };
 }
 /** Monthly amounts of the split. Investor + bonus always equals the full plan return. */
-export function splitReturn(principal: number, planRate: number | string): { total: number; investor: number; bonus: number } {
-  const { investor } = splitRate(planRate);
+export function splitReturn(principal: number, planRate: number | string, bonusRate: number | string | null | undefined): { total: number; investor: number; bonus: number } {
+  const { investor } = splitRate(planRate, bonusRate);
   const total = monthlyReturn(principal, Number(planRate)), mine = monthlyReturn(principal, investor);
   return { total, investor: mine, bonus: Math.round((total - mine) * 100) / 100 };
 }
-/** The plan name an investor sees, e.g. "6% Monthly Plan" becomes "4% Monthly Plan" on a split plan. */
-export function investorPlanName(name: string, planRate: number | string): string {
-  const { investor, bonus } = splitRate(planRate);
+/** The plan name an investor sees, e.g. "6% Monthly Plan" with a 2% bonus becomes "4% Monthly Plan". */
+export function investorPlanName(name: string, planRate: number | string, bonusRate: number | string | null | undefined): string {
+  const { investor, bonus } = splitRate(planRate, bonusRate);
   if (!bonus || !name) return name;
   const esc = String(Number(planRate)).replace('.', '\\.');
   return name.replace(new RegExp('(^|[^\\d.])' + esc + '(?:\\.0+)?\\s*%', 'g'), '$1' + investor + '%');

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, rpc, fetchAll } from '../lib/api';
 import { useQuery, refreshAll } from '../lib/useQuery';
-import { money, date, rate, today, ADMIN_BONUS_SPLIT } from '../lib/format';
+import { money, date, rate, today } from '../lib/format';
 import { downloadCsv } from '../lib/csv';
 import type { AdminBonus } from '../lib/types';
 import { Badge, Kpi, ErrorNote, Loading, PageHead, Modal, Field, IconBtn, useAction } from '../ui/kit';
@@ -84,12 +84,11 @@ export function Bonuses() {
     { h: 'Reference', v: r => r.payment_ref || '', r: r => r.payment_ref ? <span className="mono">{r.payment_ref}{r.paid_on && <span className="sub">Paid {date(r.paid_on)}</span>}</span> : <span className="muted">—</span> },
     { h: 'Status', v: r => r.status, r: r => <StatusBadge s={r.status} /> }
   ];
-  const splits = Object.entries(ADMIN_BONUS_SPLIT).map(([plan, b]) => `${plan}% plan = ${Number(plan) - b}% to the investor + ${b}% to the introducer`).join(' · ');
 
   return (
     <>
       <PageHead crumbs={['Introducer bonus']} title="Introducer bonus"
-        sub={<>Part of the plan rate goes to whoever introduced the investor, a Super Admin or an investor allowed to add investors: {splits}. The total paid out is the same as the plan rate. Investors only ever see their own share.</>}
+        sub={<>Part of each plan’s monthly rate goes to whoever introduced the investor, a Super Admin or an investor allowed to add investors. You set the bonus % on each plan under Investment Plans. The total paid out is the same as the plan rate. Investors only ever see their own share.</>}
         actions={<IconBtn icon="download" onClick={exportCsv} disabled={!rows.length}>Export CSV</IconBtn>} />
       {q.error && <ErrorNote msg={q.error} retry={q.reload} />}
       {!q.data && !q.error ? <Loading /> : q.data && (

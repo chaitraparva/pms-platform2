@@ -2,7 +2,7 @@
 // On-device database. Tables live in memory and are saved to this browser's localStorage; uploaded
 // files (brochures, documents, photos) are too large for localStorage and are kept in IndexedDB.
 // Every money-moving action below follows the original database rules.
-import { splitRate, investorPlanName, STANDARD_PLANS, STANDARD_RATES } from './format';
+import { splitRate, investorPlanName, defaultBonus, STANDARD_PLANS, STANDARD_RATES } from './format';
 
 type Row = Record<string, any>;
 interface Store { v: number; tables: Record<string, Row[]>; seq: Record<string, number>; users: { id: string; email: string; pw: string }[] }
@@ -79,8 +79,8 @@ const round2 = (x: number) => Math.round((x + Number.EPSILON) * 100) / 100;
 const monthlyReturn = (principal: number, rate: number) => round2(principal * rate / 100);
 /** Splits the plan rate between the investor and the admin who introduced them (6% = 4% investor + 2% admin bonus).
  *  monthly_rate stays the plan rate; monthly_return is the investor's share; the total paid out never changes. */
-function applySplit(i: Row): Row {
-  const { investor, bonus } = splitRate(i.monthly_rate);
+function applySplit(i: Row, bonusRate?: number): Row {
+  const { investor, bonus } = splitRate(i.monthly_rate, bonusRate ?? i.admin_bonus_rate ?? 0);
   const total = monthlyReturn(Number(i.principal), Number(i.monthly_rate)), mine = monthlyReturn(Number(i.principal), investor);
   return Object.assign(i, { investor_rate: investor, admin_bonus_rate: bonus, monthly_return: mine, admin_bonus: round2(total - mine) });
 }
@@ -179,7 +179,7 @@ export function redact(table: string, r: Row): Row {
   if (isAdmin() || (table !== 'investments' && table !== 'profiles')) return r;
   const c: Row = { ...r };
   if (table === 'investments') {
-    c.monthly_rate = investorRate(r); c.plan_name = investorPlanName(r.plan_name, r.monthly_rate);
+    c.monthly_rate = investorRate(r); c.plan_name = investorPlanName(r.plan_name, r.monthly_rate, r.admin_bonus_rate);
     delete c.investor_rate; delete c.admin_bonus_rate; delete c.admin_bonus;
   } else delete c.introduced_by;
   return c;
@@ -227,8 +227,10 @@ function insertPlanVersion(plan: string, version: number, v: Row, reason: string
     lockin_options: (v.lockin_options || []).map(Number).sort((a: number, b: number) => a - b), allow_custom_lockin: !!v.allow_custom_lockin,
     eligible_from: str(v.eligible_from, today()), eligible_to: blank(v.eligible_to) ? null : v.eligible_to, early_redemption: str(v.early_redemption, 'not_permitted'),
     early_fee_pct: Number(v.early_fee_pct || 0), payout_lag_days: blank(v.payout_lag_days) ? settings().default_payout_lag_days : Number(v.payout_lag_days),
-    terms: str(v.terms), risk_disclosure: str(v.risk_disclosure), effective_from: str(v.effective_from, today()), change_reason: reason, created_by: currentUid, created_at: nowIso() };
+    terms: str(v.terms), risk_disclosure: str(v.risk_disclosure), effective_from: str(v.effective_from, today()), change_reason: reason, created_by: currentUid, created_at: nowIso(),
+    bonus_rate: blank(v.bonus_rate) ? 0 : Number(v.bonus_rate) };
   if (!(row.monthly_rate > 0 && row.monthly_rate <= 100)) fail('Monthly rate must be above 0 and at most 100%.');
+  if (!(row.bonus_rate >= 0) || row.bonus_rate >= row.monthly_rate) fail('The introducer bonus must be 0 or more and less than the monthly rate.');
   if (!(row.min_amount > 0)) fail('Minimum amount must be above 0.');
   if (row.max_amount < row.min_amount) fail('Maximum amount must be at least the minimum.');
   if (!row.lockin_options.length) fail('Choose at least one lock-in option.');
@@ -273,7 +275,7 @@ function recordInvestment(a: Row, byIntroducer = false) {
   const lock = Number(a.p_lockin_months);
   if (!pv.lockin_options.includes(lock) && !(pv.allow_custom_lockin && s.allow_custom_lockin && lock >= 1 && lock <= 120)) fail(`Lock-in of ${lock} months is not offered on this plan.`);
   const id = uuid(), code = 'INV-' + nextSeq('investment', 1001);
-  T('investments').push(applySplit({ id, code, investor_id: inv!.id, plan_id: plan.id, plan_version_id: pv.id, plan_name: plan.name, plan_version: pv.version, monthly_rate: pv.monthly_rate,
+  T('investments').push(applySplit({ admin_bonus_rate: Number(pv.bonus_rate || 0), id, code, investor_id: inv!.id, plan_id: plan.id, plan_version_id: pv.id, plan_name: plan.name, plan_version: pv.version, monthly_rate: pv.monthly_rate,
     lockin_months: lock, early_redemption: pv.early_redemption, early_fee_pct: pv.early_fee_pct, payout_lag_days: pv.payout_lag_days,
     terms: pv.terms || s.default_terms, risk_disclosure: pv.risk_disclosure || s.default_risk_disclosure, principal, monthly_return: monthlyReturn(principal, pv.monthly_rate),
     status: 'pending_funding', expected_start: a.p_expected_start || null, start_date: null, lockin_end_date: null, maturity_date: null, request_from_date: null,
@@ -507,7 +509,7 @@ export function rpcCall(fn: string, a: Row): unknown {
       STANDARD_PLANS.forEach(([code, name, rate]) => {
         const exists = T('plans').some(p => p.code === code) || T('plans').some(p => p.status !== 'archived' && T('plan_versions').some(v => v.plan_id === p.id && v.version === p.current_version && Number(v.monthly_rate) === rate));
         if (exists) return;
-        const id = createPlan(code, name, `Simple monthly return of ${rate}% on the original principal, paid monthly.`, { monthly_rate: rate, min_amount: 1, max_amount: 999999999999, lockin_options: [6, 12], eligible_from: today(), effective_from: today() });
+        const id = createPlan(code, name, `Simple monthly return of ${rate}% on the original principal, paid monthly.`, { monthly_rate: rate, bonus_rate: defaultBonus(rate), min_amount: 1, max_amount: 999999999999, lockin_options: [6, 12], eligible_from: today(), effective_from: today() });
         if (a.p_activate) setPlanStatus(id, 'active', 'Standard plan published'); n++;
       });
       touched('plans', 'plan_versions'); return n;
@@ -673,7 +675,7 @@ export function rpcCall(fn: string, a: Row): unknown {
 function planNameForInvestor(planId: string | null): string | null {
   const p = T('plans').find(x => x.id === planId); if (!p) return null;
   const v = T('plan_versions').find(x => x.plan_id === p.id && x.version === p.current_version);
-  return v ? investorPlanName(p.name, v.monthly_rate) : p.name;
+  return v ? investorPlanName(p.name, v.monthly_rate, v.bonus_rate) : p.name;
 }
 
 /* ---------- investors who bring in investors ---------- */
@@ -687,7 +689,7 @@ function myNetwork(): Row | null {
   const investors = people.map(p => ({
     id: p.id, code: p.code, name: p.full_name, email: p.email, phone: p.phone, city: p.city, kyc_status: p.kyc_status, account_status: p.account_status, created_at: p.created_at,
     investments: T('investments').filter(i => i.investor_id === p.id && i.status !== 'cancelled').sort((x, y) => String(y.created_at).localeCompare(String(x.created_at))).map(i => ({
-      id: i.id, code: i.code, plan_name: investorPlanName(i.plan_name, i.monthly_rate), principal: Number(i.principal), investor_rate: investorRate(i), bonus_rate: Number(i.admin_bonus_rate || 0),
+      id: i.id, code: i.code, plan_name: investorPlanName(i.plan_name, i.monthly_rate, i.admin_bonus_rate), principal: Number(i.principal), investor_rate: investorRate(i), bonus_rate: Number(i.admin_bonus_rate || 0),
       bonus_monthly: Number(i.admin_bonus || 0), status: i.status, start_date: i.start_date, maturity_date: i.maturity_date, lockin_months: i.lockin_months, created_at: i.created_at,
       bonus_earned: sumB(b => b.investment_id === i.id), bonus_paid: sumB(b => b.investment_id === i.id && b.status === 'paid')
     }))
@@ -696,7 +698,7 @@ function myNetwork(): Row | null {
   const plans = T('plans').filter(p => p.status === 'active').map(p => {
     const v = T('plan_versions').filter(x => x.plan_id === p.id && x.effective_from <= today()).sort((x, y) => y.version - x.version)[0];
     if (!v) return null;
-    const sp = splitRate(v.monthly_rate);
+    const sp = splitRate(v.monthly_rate, v.bonus_rate);
     return { id: p.id, name: p.name, rate: Number(v.monthly_rate), investor_rate: sp.investor, bonus_rate: sp.bonus, min_amount: Number(v.min_amount), max_amount: Number(v.max_amount), lockin_options: v.lockin_options };
   }).filter(Boolean);
   return {
@@ -805,7 +807,7 @@ async function seed(): Promise<Store> {
   try { return await seedData(); } finally { seeding = false; }
 }
 async function seedData(): Promise<Store> {
-  S = { v: 6, tables: Object.fromEntries(TABLES.map(t => [t, []])), seq: {}, users: [] };
+  S = { v: 7, tables: Object.fromEntries(TABLES.map(t => [t, []])), seq: {}, users: [] };
   T('settings').push({ id: 1, company_name: 'Parva Realty', tagline: 'Every investment, return and maturity in one place.', logo_url: null, primary_color: '#0F2147', currency: 'INR', locale: 'en-IN',
     timezone: 'Asia/Kolkata', approaching_days: 60, request_window_days: 30, default_payout_lag_days: 3, four_eyes: true, allow_custom_lockin: false, lockin_options: [6, 12],
     default_terms: 'Returns are simple interest on the original principal at the monthly rate in this agreement. Unpaid returns are not added to principal.',
@@ -819,7 +821,7 @@ async function seedData(): Promise<Store> {
   const br = ([['TMK', 'Tumkur'], ['BLR', 'Bangalore']] as [string, string][]).map(([code, name]) => { const id = uuid(); T('branches').push({ id, code, name, city: name, status: 'active', created_by: adminId, created_at: nowIso(), updated_at: nowIso() }); return id; });
   const start = addMonths(today(), -12);
   const plans = STANDARD_PLANS.map(([code, name, rate]) => {
-    const id = createPlan(code, name, `Simple monthly return of ${rate}% on the original principal, paid monthly.`, { monthly_rate: rate, min_amount: 100000, max_amount: 50000000, lockin_options: [6, 12], eligible_from: start, effective_from: start });
+    const id = createPlan(code, name, `Simple monthly return of ${rate}% on the original principal, paid monthly.`, { monthly_rate: rate, bonus_rate: defaultBonus(rate), min_amount: 100000, max_amount: 50000000, lockin_options: [6, 12], eligible_from: start, effective_from: start });
     setPlanStatus(id, 'active', 'Standard plan published'); return id;
   });
 
@@ -935,12 +937,12 @@ export function ready(): Promise<void> {
           const by = T('audit_logs').find(l => l.action === 'investor.create' && l.entity_id === x.id)?.actor_id || T('investments').find(i => i.investor_id === x.id && i.created_by)?.created_by || null;
           x.introduced_by = by && admins.has(by) ? by : null;
         });
-        T('investments').forEach(i => { if (i.investor_rate === undefined) applySplit(i); });
+        T('investments').forEach(i => { if (i.investor_rate === undefined) applySplit(i, Number(i.monthly_rate) === 6 ? 2 : 0); });
         S.v = 2; save();
       }
       // v3: the 2% and 3.3% plans are split too (2% = 1.5% + 0.5%, 3.3% = 2.3% + 1%). Returns already accrued stay as they were;
       // the new split applies from the next monthly accrual.
-      if ((S.v || 1) < 3) { T('investments').forEach(i => applySplit(i)); S.v = 3; save(); }
+      if ((S.v || 1) < 3) { T('investments').forEach(i => applySplit(i, defaultBonus(i.monthly_rate))); S.v = 3; save(); }
       // v4: sample introducers. The sample investors are spread across a few admins so the bonus shows going to each of them.
       if ((S.v || 1) < 4) {
         const sample = T('profiles').filter(p => p.role === 'investor' && p.email in SAMPLE_INTRODUCED_BY);
@@ -979,12 +981,17 @@ export function ready(): Promise<void> {
             STANDARD_PLANS.filter(([, , rate]) => rate === 4 || rate === 5).forEach(([code, name, rate]) => {
               const has = T('plans').some(p => p.code === code) || T('plans').some(p => p.status !== 'archived' && T('plan_versions').some(v => v.plan_id === p.id && v.version === p.current_version && Number(v.monthly_rate) === rate));
               if (has) return;
-              const id = createPlan(code, name, `Simple monthly return of ${rate}% on the original principal, paid monthly.`, { monthly_rate: rate, min_amount: 100000, max_amount: 50000000, lockin_options: [6, 12], eligible_from: today(), effective_from: today() });
+              const id = createPlan(code, name, `Simple monthly return of ${rate}% on the original principal, paid monthly.`, { monthly_rate: rate, bonus_rate: defaultBonus(rate), min_amount: 100000, max_amount: 50000000, lockin_options: [6, 12], eligible_from: today(), effective_from: today() });
               setPlanStatus(id, 'active', 'Standard plan published');
             });
           } finally { currentUid = prev; seeding = false; }
         }
         S.v = 6; save();
+      }
+      // v7: the bonus % lives on each plan (set by the Super Admin). Plans from before keep the split they had.
+      if ((S.v || 1) < 7) {
+        T('plan_versions').forEach(v => { if (v.bonus_rate === undefined) v.bonus_rate = defaultBonus(v.monthly_rate); });
+        S.v = 7; save();
       }
     }
     else { S = await seed(); save(); }

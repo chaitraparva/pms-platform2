@@ -37,6 +37,8 @@ export interface PlanVersion {
   lockin_options: number[]; allow_custom_lockin: boolean; eligible_from: string; eligible_to: string | null;
   early_redemption: EarlyRedemption; early_fee_pct: number; payout_lag_days: number; terms: string; risk_disclosure: string;
   effective_from: string; change_reason: string; created_by: string | null; created_at: string;
+  /** % per month of the plan rate that goes to whoever introduced the investor. Set by the Super Admin on the plan. */
+  bonus_rate?: number;
 }
 
 export interface Investment {

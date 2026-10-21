@@ -189,8 +189,8 @@ function RecordInvestment({ preInvestor, onClose, onDone }: { preInvestor: strin
   };
   const bad = Object.values(errs).some(Boolean);
   const e = (k: string) => (tried ? errs[k] : null);
-  const split = pv ? splitRate(pv.monthly_rate) : null;
-  const sr = pv && amt > 0 ? splitReturn(amt, pv.monthly_rate) : null;
+  const split = pv ? splitRate(pv.monthly_rate, pv.bonus_rate) : null;
+  const sr = pv && amt > 0 ? splitReturn(amt, pv.monthly_rate, pv.bonus_rate) : null;
   const mr = sr ? sr.investor : 0;
   const introBy = opts.data?.people.find(p => p.id === investor)?.introduced_by;
   const intro = introBy ? opts.data?.admins.find(a => a.id === introBy) : undefined;
