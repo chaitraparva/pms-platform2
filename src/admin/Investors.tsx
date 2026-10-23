@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, rpc, must, fetchAll } from '../lib/api';
 import { useQuery, refreshAll } from '../lib/useQuery';
 import { useAuth, useSettings } from '../lib/auth';
-import { createUser, resetUserPassword } from '../lib/adminApi';
+import { createIbLogin, resetUserPassword } from '../lib/adminApi';
 import { uploadDocument, openDocument, deleteDocument } from '../lib/docs';
 import { downloadCsv } from '../lib/csv';
 import { money, date, dateTime, initials, isUnlocked, lockinText, rate, today, LEDGER_TYPE } from '../lib/format';
@@ -34,8 +34,7 @@ export const loadBranches = async () => must(await api.from('branches').select('
 /* =============================== DIRECTORY =============================== */
 export function Investors() {
   const nav = useNavigate();
-  const [sp, setSp] = useSearchParams();
-  const [adding, setAdding] = useState(sp.get('new') === '1');
+  const [sp] = useSearchParams();
   const q = useQuery(async () => {
     const [people, invs, bal, branches] = await Promise.all([
       fetchAll<Profile>((a, b) => api.from('profiles').select('*').eq('role', 'investor').order('created_at', { ascending: false }).range(a, b)),
@@ -44,7 +43,7 @@ export function Investors() {
       loadBranches()
     ]);
     const admins = await loadAdmins();
-    const an = new Map([...admins, ...people].map(a => [a.id, (a.full_name || a.email) + (a.role === 'investor' ? ' (investor)' : '')]));
+    const an = new Map([...admins, ...people].map(a => [a.id, a.full_name || a.email]));
     const bn = new Map(branches.map(b => [b.id, b.name]));
     const bm = new Map(bal.map(x => [x.investment_id, x]));
     const by = new Map<string, typeof invs>();
@@ -68,14 +67,13 @@ export function Investors() {
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [assigning, setAssigning] = useState(false);
 
-  const closeAdd = () => { setAdding(false); if (sp.get('new')) { sp.delete('new'); setSp(sp, { replace: true }); } };
   const rows = q.data?.rows || [];
   const branches = q.data?.branches || [];
   const branchParam = sp.get('branch') || '';
   const cols: Col<Row>[] = useMemo(() => [
-    { h: 'Investor', v: r => r.full_name, r: r => <><b>{r.full_name || '—'}</b>{r.can_introduce && <> <Badge cls="b-blue">Adds investors</Badge></>}<span className="sub">{r.code} · {r.email}</span></> },
+    { h: 'Investor', v: r => r.full_name, r: r => <><b>{r.full_name || '—'}</b>{r.can_introduce && <> <Badge cls="b-blue">IB</Badge></>}<span className="sub">{r.code} · {r.phone || r.email}</span></> },
     { h: 'Branch', v: r => r.branch || 'zz', r: r => r.branch || <span className="muted">Not assigned</span> },
-    { h: 'Introduced by', v: r => r.introducer || 'zz', r: r => r.introducer || <span className="muted">No introducer set</span> },
+    { h: 'Under IB', v: r => r.introducer || 'zz', r: r => r.introducer || <span className="muted">{r.can_introduce ? 'IB' : 'No IB'}</span> },
     { h: 'Phone', v: r => r.phone, r: r => <span className="num">{r.phone || '—'}</span> },
     { h: 'Registered', v: r => r.created_at, r: r => date(r.created_at) },
     { h: 'Verification', v: r => r.kyc_status, r: r => <KycBadge k={r.kyc_status} /> },
@@ -88,7 +86,7 @@ export function Investors() {
   ], []);
 
   const exportCsv = () => downloadCsv(`investors-${today()}`,
-    ['Investor ID', 'Name', 'Email', 'Branch', 'Introduced by', 'Phone', 'City', 'Registered', 'KYC', 'Account', 'Principal (live)', 'Unlocked principal', 'Accrued', 'Paid', 'Next unlock'],
+    ['Investor ID', 'Name', 'Email', 'Branch', 'Under IB', 'Phone', 'City', 'Registered', 'KYC', 'Account', 'Principal (live)', 'Unlocked principal', 'Accrued', 'Paid', 'Next unlock'],
     rows.map(r => [r.code, r.full_name, r.email, r.branch, r.introducer, r.phone, r.city, r.created_at.slice(0, 10), r.kyc_status, r.account_status, r.principal, r.unlocked, r.accrued, r.paid, r.next || '']));
 
   return (
@@ -98,13 +96,13 @@ export function Investors() {
         actions={<>
           {sel.size > 0 && <button className="btn" onClick={() => setAssigning(true)}><Icon name="branch" />Assign branch ({sel.size})</button>}
           <button className="btn" onClick={exportCsv} disabled={!rows.length}><Icon name="download" />Export CSV</button>
-          <button className="btn accent" onClick={() => setAdding(true)}><Icon name="plus" />Add investor</button>
+          <button className="btn accent" onClick={() => nav('/admin/investments?new=1')}><Icon name="plus" />Record investment</button>
         </>} />
       {q.error ? <ErrorNote msg={q.error} retry={q.reload} /> : !q.data ? <Loading /> : !rows.length ? (
         <div className="card"><div className="card-b">
           <Empty title="No investors yet">
             <span>Add an investor to send them an invitation, or set a temporary password for them.</span>
-            <button className="btn accent" style={{ marginTop: 8 }} onClick={() => setAdding(true)}><Icon name="plus" />Add investor</button>
+            <button className="btn accent" style={{ marginTop: 8 }} onClick={() => nav('/admin/investments?new=1')}><Icon name="plus" />Record investment</button>
           </Empty>
         </div></div>
       ) : (
@@ -117,7 +115,6 @@ export function Investors() {
           href={r => (r.code ? '/admin/investors/' + r.code : null)} emptyTitle="No matching investors" />
       )}
       {assigning && <BranchDialog ids={[...sel]} label={`${sel.size} investor${sel.size === 1 ? '' : 's'}`} current={null} branches={branches} onClose={() => setAssigning(false)} onDone={() => { setSel(new Set()); setAssigning(false); }} />}
-      {adding && <AddInvestor onClose={closeAdd} onDone={code => { closeAdd(); if (code) nav('/admin/investors/' + code); }} />}
     </>
   );
 }
@@ -147,96 +144,13 @@ export function BranchDialog({ ids, label, current, branches, onClose, onDone }:
   );
 }
 
-/** People who can be chosen as "Introduced by" (they receive the bonus): Super Admins and investors allowed to add investors. */
+/** The IBs a person can be under (they receive the IB bonus). */
 type AdminLite = Pick<Profile, 'id' | 'code' | 'full_name' | 'email' | 'account_status' | 'role' | 'can_introduce'>;
 const loadAdmins = async () => {
   const cols = 'id, code, full_name, email, account_status, role, can_introduce';
-  const [admins, investors] = await Promise.all([
-    fetchAll<AdminLite>((a, b) => api.from('profiles').select(cols).eq('role', 'super_admin').order('full_name').range(a, b)),
-    fetchAll<AdminLite>((a, b) => api.from('profiles').select(cols).eq('role', 'investor').eq('can_introduce', true).order('full_name').range(a, b))
-  ]);
-  return [...admins, ...investors];
+  return fetchAll<AdminLite>((a, b) => api.from('profiles').select(cols).eq('role', 'investor').eq('can_introduce', true).order('full_name').range(a, b));
 };
-const introLabel = (a: AdminLite) => (a.full_name || a.email) + (a.code ? ' · ' + a.code : '') + (a.role === 'investor' ? ' (investor)' : ' (Super Admin)');
-
-function AddInvestor({ onClose, onDone }: { onClose: () => void; onDone: (code: string) => void }) {
-  const act = useAction();
-  const { profile: me } = useAuth();
-  const bq = useQuery(loadBranches, []);
-  const aq = useQuery(loadAdmins, []);
-  const [branch, setBranch] = useState('');
-  const [introducedBy, setIntroducedBy] = useState(me?.id || '');
-  const [mode, setMode] = useState<'invite' | 'password'>('password');
-  const [f, setF] = useState({ full_name: '', email: '', phone: '', city: '', address: '', id_number: '', bank_name: '', bank_account: '', bank_ifsc: '', password: '' });
-  const [tried, setTried] = useState(false);
-  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
-  const errs = {
-    full_name: !f.full_name.trim() ? 'Enter the investor’s full name.' : null,
-    email: !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email.trim()) ? 'Enter a valid email address.' : null,
-    password: mode === 'password' && f.password.length < 10 ? 'Use at least 10 characters.' : null
-  };
-  const ok = !errs.full_name && !errs.email && !errs.password;
-  const save = async () => {
-    setTried(true);
-    if (!ok) return;
-    const r = await act.run(() => createUser({
-      mode, role: 'investor', email: f.email.trim().toLowerCase(), full_name: f.full_name.trim(), password: mode === 'password' ? f.password : undefined,
-      phone: f.phone.trim(), city: f.city.trim(), address: f.address.trim(), id_number_masked: maskId(f.id_number), bank_name: f.bank_name.trim(),
-      bank_account_masked: maskId(f.bank_account), bank_ifsc: f.bank_ifsc.trim().toUpperCase(), introduced_by: introducedBy || null
-    }), [mode === 'invite' ? 'Invitation sent' : 'Investor created', mode === 'invite' ? `${f.email.trim()} will receive a link to choose a password.` : 'Share the temporary password securely.']);
-    if (r && branch) await act.run(() => rpc('admin_set_investor_branch', { p_ids: [r.id], p_branch: branch, p_reason: 'Branch set when the investor was added' }));
-    if (r) { refreshAll(); onDone(r.code); }
-  };
-  return (
-    <Drawer title="Add investor" sub="Creates an investor account. They cannot invest until you verify their KYC." onClose={onClose}
-      foot={<><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" onClick={save} disabled={act.busy}>{act.busy ? 'Creating…' : mode === 'invite' ? 'Create and send invite' : 'Create investor'}</button></>}>
-      <div className="form">
-        <div className="field">
-          <label>How will they sign in?</label>
-          <div className="chips">
-            <button type="button" className={'chip ' + (mode === 'password' ? 'on' : '')} onClick={() => setMode('password')}>Temporary password</button>
-          </div>
-          <p className="hint">{mode === 'invite'
-            ? 'We email a secure link. The investor chooses their own password — you never see it.'
-            : 'You set a password now and share it with the investor yourself (e.g. by phone). Ask them to change it after their first sign-in.'}</p>
-        </div>
-        <div className="f-row">
-          <Field label="Full name *" err={tried ? errs.full_name : null}><input className={'input ' + (tried && errs.full_name ? 'bad' : '')} value={f.full_name} onChange={set('full_name')} placeholder="As on ID document" /></Field>
-          <Field label="Branch" hint="Bangalore or Tumkur. You can change it later.">
-            <select className="input" value={branch} onChange={e => setBranch(e.target.value)}>
-              <option value="">Choose later</option>{(bq.data || []).filter(b => b.status === 'active').map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
-          </Field>
-        </div>
-        <div className="f-row">
-          <Field label="Email *" err={tried ? errs.email : null}><input className={'input ' + (tried && errs.email ? 'bad' : '')} type="email" value={f.email} onChange={set('email')} /></Field>
-          <Field label="Phone"><input className="input" value={f.phone} onChange={set('phone')} /></Field>
-        </div>
-        <Field label="Introduced by" hint={`Who brought this investor in: a Super Admin, or an investor allowed to add investors. They get the bonus % set on each plan. The investor never sees this.`}>
-          <select className="input" value={introducedBy} onChange={e => setIntroducedBy(e.target.value)}>
-            {(aq.data || []).filter(a => a.account_status === 'active' || a.id === introducedBy).map(a => <option key={a.id} value={a.id}>{introLabel(a)}</option>)}
-          </select>
-        </Field>
-        {mode === 'password' && (
-          <Field label="Temporary password *" err={tried ? errs.password : null} hint="At least 10 characters.">
-            <input className={'input mono ' + (tried && errs.password ? 'bad' : '')} value={f.password} onChange={set('password')} autoComplete="new-password" />
-          </Field>
-        )}
-        <div className="f-row">
-          <Field label="City"><input className="input" value={f.city} onChange={set('city')} /></Field>
-          <Field label="ID number" hint={f.id_number ? <>Stored as <span className="mono">{maskId(f.id_number)}</span></> : 'Only a masked form (last 4 characters) is stored.'}><input className="input mono" value={f.id_number} onChange={set('id_number')} autoComplete="off" /></Field>
-        </div>
-        <Field label="Address"><textarea className="input" rows={2} value={f.address} onChange={set('address')} /></Field>
-        <div className="f-row">
-          <Field label="Bank name"><input className="input" value={f.bank_name} onChange={set('bank_name')} /></Field>
-          <Field label="IFSC / routing code"><input className="input mono" value={f.bank_ifsc} onChange={set('bank_ifsc')} /></Field>
-        </div>
-        <Field label="Bank account number" hint={f.bank_account ? <>Stored as <span className="mono">{maskId(f.bank_account)}</span></> : 'Only a masked form (last 4 digits) is stored.'}><input className="input mono" value={f.bank_account} onChange={set('bank_account')} autoComplete="off" /></Field>
-        <div className="note info">Investors upload or send KYC documents after joining. You can also upload them on the investor’s page. They cannot invest until verified.</div>
-      </div>
-    </Drawer>
-  );
-}
+const introLabel = (a: AdminLite) => (a.full_name || a.email) + (a.code ? ' · ' + a.code : '');
 
 /* =============================== DETAIL =============================== */
 interface DetailData {
@@ -307,19 +221,19 @@ export function InvestorDetail() {
         actions={<>
           <KycBadge k={p.kyc_status} /> <AcctBadge s={p.account_status} />
           {p.role === 'super_admin' && <Badge cls="b-navy">Super Admin</Badge>}
-          {p.can_introduce && <Badge cls="b-blue">Can add investors</Badge>}
+          {p.can_introduce && <Badge cls="b-blue">IB · signs in with {p.phone}</Badge>}
           <button className="btn" onClick={() => setDlg('edit')}>Edit details</button>
-          {p.role === 'investor' && <button className="btn" onClick={() => setDlg('introduce')}><Icon name="users" />{p.can_introduce ? 'Stop adding investors' : 'Allow adding investors'}</button>}
-          <button className="btn" onClick={() => setDlg('password')}>Reset password</button>
+          {p.role === 'investor' && !p.can_introduce && !p.introduced_by && <button className="btn" onClick={() => setDlg('introduce')}><Icon name="users" />Create IB login</button>}
+          {(p.can_introduce || p.role === 'super_admin') && <button className="btn" onClick={() => setDlg('password')}>Reset password</button>}
           <button className="btn" onClick={() => nav('/admin/announcements?to=' + p.id)}><Icon name="announce" />Send notice</button>
           {!self && <button className={'btn ' + (p.account_status === 'active' ? 'danger' : '')} onClick={() => setDlg('status')}>{p.account_status === 'active' ? 'Suspend account' : 'Reactivate account'}</button>}
-          {p.role === 'investor' && <button className="btn accent" disabled={p.kyc_status !== 'verified' || p.account_status !== 'active'}
-            title={p.kyc_status !== 'verified' ? 'Verify KYC first' : p.account_status !== 'active' ? 'Account is suspended' : undefined}
+          {p.role === 'investor' && <button className="btn accent" disabled={p.account_status !== 'active'}
+            title={p.account_status !== 'active' ? 'Account is suspended' : undefined}
             onClick={() => nav('/admin/investments?new=1&investor=' + encodeURIComponent(p.code || ''))}><Icon name="plus" />Record investment</button>}
         </>}>
         <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
           <div className="avatar" style={{ width: 52, height: 52, fontSize: 17 }}>{initials(p.full_name || p.email)}</div>
-          <div><h1>{p.full_name || p.email}</h1><p>{[p.code, p.email, branch ? branch.name + ' branch' : 'No branch', p.phone, p.city, p.role === 'investor' ? 'Introduced by ' + (introducer ? (introducer.full_name || introducer.email) + (introducer.role === 'investor' ? ' (investor)' : '') : 'nobody') : ''].filter(Boolean).join(' · ')}</p></div>
+          <div><h1>{p.full_name || p.email}</h1><p>{[p.code, p.email, branch ? branch.name + ' branch' : 'No branch', p.phone, p.city, p.role === 'investor' ? (p.can_introduce ? 'IB' : introducer ? 'Under IB ' + (introducer.full_name || introducer.email) : 'No IB') : ''].filter(Boolean).join(' · ')}</p></div>
         </div>
       </PageHead>
 
@@ -340,11 +254,11 @@ export function InvestorDetail() {
       </div>
 
       {introducer && introducer.role === 'investor' && (
-        <div className="note info">Brought in by <Link to={'/admin/investors/' + introducer.code}><b>{introducer.full_name || introducer.email}</b></Link> ({introducer.code}). The bonus on this investor’s investments goes to them. {p.full_name || 'This investor'} does not see this.</div>
+        <div className="note info">Under IB <Link to={'/admin/investors/' + introducer.code}><b>{introducer.full_name || introducer.email}</b></Link> ({introducer.code}). The IB bonus on this person’s investments goes to them.</div>
       )}
       {p.role === 'investor' && (p.can_introduce || brought.length > 0) && (
         <div className="card">
-          <div className="card-h"><h3>Investors brought in by {p.full_name || p.email}</h3>
+          <div className="card-h"><h3>People under {p.full_name || p.email} (IB)</h3>
             <div className="r">{brought.length} investor{brought.length === 1 ? '' : 's'} · bonus earned {money(bonus.earned)} · paid {money(bonus.paid)}</div></div>
           {brought.length ? (
             <div className="tbl"><table><thead><tr><th>Investor</th><th>Branch</th><th>Verification</th><th>Added</th></tr></thead>
@@ -354,7 +268,7 @@ export function InvestorDetail() {
                   <td>{branches.find(b => b.id === x.branch_id)?.name || <span className="muted">—</span>}</td>
                   <td><KycBadge k={x.kyc_status} /></td><td>{date(x.created_at)}</td>
                 </tr>))}</tbody></table></div>
-          ) : <div className="card-b"><Empty title="Nobody yet">{p.full_name || 'This investor'} can add investors from their portal. They appear here, waiting for KYC and deposit confirmation.</Empty></div>}
+          ) : <div className="card-b"><Empty title="Nobody yet">Use “Record investment” and choose {p.full_name || 'this IB'} under “Under IB”. People appear here and in the IB’s login.</Empty></div>}
         </div>
       )}
 
@@ -499,23 +413,21 @@ function KycDialog({ p, to, onClose }: { p: Profile; to: KycStatus; onClose: () 
   );
 }
 
-/** Turns on (or off) an investor's right to add investors from their portal. */
-function IntroduceDialog({ p, count, onClose }: { p: Profile; count: number; onClose: () => void }) {
+/** Gives a person an IB login: they sign in with their phone number and this password and see the people under them. */
+function IntroduceDialog({ p, onClose }: { p: Profile; count: number; onClose: () => void }) {
   const act = useAction();
-  const on = !p.can_introduce;
-  const [reason, setReason] = useState('');
+  const [pw, setPw] = useState('');
+  const [tried, setTried] = useState(false);
+  const bad = pw.length < 8 ? 'At least 8 characters.' : !p.phone ? 'Add a phone number first (Edit details).' : null;
   const go = async () => {
-    const r = await act.run(() => rpc('admin_set_can_introduce', { p_id: p.id, p_value: on, p_reason: reason.trim() }),
-      [on ? 'Can now add investors' : 'Can no longer add investors', `${p.full_name || p.email} · recorded in the audit log`]);
-    if (r !== undefined) { refreshAll(); onClose(); }
+    setTried(true); if (bad) return;
+    const r = await act.run(() => createIbLogin({ person_id: p.id, phone: p.phone, password: pw }), ['IB login created', `${p.full_name} signs in with ${p.phone}`]);
+    if (r) { refreshAll(); onClose(); }
   };
   return (
-    <Modal title={on ? `Allow ${p.full_name || p.email} to add investors?` : `Stop ${p.full_name || p.email} adding investors?`}
-      sub={on ? 'They get an “Add investor” button in their portal. People they add wait for you to verify KYC and confirm the deposit. They earn the bonus % set on each plan on those investors’ investments.'
-        : `They can no longer add new investors. The ${count} investor${count === 1 ? '' : 's'} they already brought in stay with them, and so does the bonus on those investments.`}
-      onClose={onClose}
-      foot={<><button className="btn ghost" onClick={onClose}>Cancel</button><button className={'btn ' + (on ? 'primary' : 'danger')} onClick={go} disabled={act.busy}>{on ? 'Allow' : 'Stop'}</button></>}>
-      <Field label="Note (optional, saved to the audit log)"><input className="input" value={reason} onChange={e => setReason(e.target.value)} placeholder={on ? 'e.g. Agreed referral partner' : 'e.g. Referral agreement ended'} /></Field>
+    <Modal title={`Create an IB login for ${p.full_name || p.email}?`} sub={`They sign in as IB with their phone number ${p.phone || '(none yet)'} and this password, and see the people you put under them. They cannot add or change anything.`}
+      onClose={onClose} foot={<><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" onClick={go} disabled={act.busy}>Create IB login</button></>}>
+      <Field label="Password *" err={tried ? bad : null} hint="Share it with them offline."><input className={'input mono ' + (tried && bad ? 'bad' : '')} value={pw} onChange={e => setPw(e.target.value)} autoComplete="new-password" /></Field>
     </Modal>
   );
 }
@@ -589,7 +501,7 @@ function EditInvestor({ p, onClose }: { p: Profile; onClose: () => void }) {
       <div className="form">
         <Field label="Full name *" err={tried ? errs.name : null}><input className="input" value={f.full_name} onChange={set('full_name')} /></Field>
         {p.role === 'investor' && (
-          <Field label="Introduced by" hint="Receives the bonus. Unpaid bonuses move to the person you choose. Hidden from the investor.">
+          <Field label="Under IB" hint="Receives the IB bonus. Unpaid bonuses move to the IB you choose.">
             <select className="input" value={f.introduced_by} onChange={set('introduced_by')}>
               <option value="">No admin</option>
               {(aq.data || []).filter(a => a.id !== p.id && (a.account_status === 'active' || a.id === f.introduced_by)).map(a => <option key={a.id} value={a.id}>{introLabel(a)}</option>)}

@@ -5,8 +5,8 @@ import { useQuery, refreshAll } from '../lib/useQuery';
 import { useAuth, useSettings } from '../lib/auth';
 import { uploadDocument, openDocument, deleteDocument } from '../lib/docs';
 import { downloadCsv } from '../lib/csv';
-import { money, date, dateShort, dateTime, rate, today, addMonths, daysBetween, splitRate, splitReturn, investmentLabel, isUnlocked, lockinText, rateShort, LEDGER_TYPE } from '../lib/format';
-import type { Investment, Balance, Branch, Profile, Plan, PlanVersion, Accrual, Payout, LedgerEntry } from '../lib/types';
+import { money, date, dateShort, dateTime, rate, today, addMonths, daysBetween, investmentLabel, isUnlocked, lockinText, rateShort, LEDGER_TYPE } from '../lib/format';
+import type { Investment, Balance, Branch, Profile, Plan, Accrual, Payout, LedgerEntry } from '../lib/types';
 import { DataTable, Col } from '../ui/DataTable';
 import { Kpi, Empty, ErrorNote, Loading, PageHead, InvBadge, PayBadge, LedgerBadge, Badge, Drawer, Modal, Field, useAction } from '../ui/kit';
 import { Icon } from '../ui/Icon';
@@ -76,9 +76,9 @@ export function Investments() {
   const cols: Col<Row>[] = useMemo(() => [
     { h: 'Investment', v: r => r.code, r: r => <><b className="mono">{r.code}</b><span className="sub">{r.agreement_ref || '—'}</span></> },
     { h: 'Investor', v: r => r.investor?.full_name || '', r: r => <>{r.investor?.full_name || '—'}<span className="sub">{r.investor?.code}{r.branch ? ' · ' + r.branch : ''}</span></> },
-    { h: 'Plan', v: r => r.plan_name, r: r => <>{r.plan_name} <span className="muted mono">v{r.plan_version}</span><span className="sub">{rate(r.monthly_rate)}</span></> },
+    { h: 'Plan', v: r => r.plan_name, r: r => <>{r.plan_name}{r.plan_id && <> <span className="muted mono">v{r.plan_version}</span></>}<span className="sub">{rate(r.monthly_rate)}</span></> },
     { h: 'Bonus to', v: r => r.bonusTo?.full_name || '', r: r => Number(r.admin_bonus || 0) > 0
-      ? (r.bonusTo ? <>{r.bonusTo.full_name || r.bonusTo.email}<span className="sub">{rate(r.admin_bonus_rate || 0)} · {money(r.admin_bonus)} / month</span></> : <span className="muted">No introducer set<span className="sub">{rate(r.admin_bonus_rate || 0)} unassigned</span></span>)
+      ? (r.bonusTo ? <>{r.bonusTo.full_name || r.bonusTo.email}<span className="sub">{rate(r.admin_bonus_rate || 0)} · {money(r.admin_bonus)} / month</span></> : <span className="muted">No IB<span className="sub">{rate(r.admin_bonus_rate || 0)} unassigned</span></span>)
       : <span className="muted">—</span> },
     { h: 'Principal', n: true, v: r => Number(r.principal), r: r => money(r.principal) },
     { h: 'Lock-in', v: r => r.lockin_months, r: r => lockinText(r.lockin_months) },
@@ -92,7 +92,7 @@ export function Investments() {
 
   const livePrincipal = rows.filter(r => LIVE.includes(r.status)).reduce((x, r) => x + Number(r.principal), 0);
   const exportCsv = () => downloadCsv(`investments-${today()}`,
-    ['Investment', 'Investor ID', 'Investor', 'Branch', 'Plan', 'Version', 'Rate %/month', 'Investor rate %', 'Introducer bonus %', 'Introducer bonus / month', 'Bonus to', 'Principal', 'Monthly return', 'Lock-in months', 'Start', 'Maturity', 'Accrued', 'Paid', 'Outstanding', 'Status', 'Agreement ref', 'Deposit ref'],
+    ['Investment', 'Investor ID', 'Investor', 'Branch', 'Plan', 'Version', 'Rate %/month', 'Investor rate %', 'IB bonus %', 'IB bonus / month', 'Bonus to', 'Principal', 'Monthly return', 'Lock-in months', 'Start', 'Maturity', 'Accrued', 'Paid', 'Outstanding', 'Status', 'Agreement ref', 'Deposit ref'],
     rows.map(r => [r.code, r.investor?.code, r.investor?.full_name, r.branch, r.plan_name, r.plan_version, r.monthly_rate, r.investor_rate ?? r.monthly_rate, r.admin_bonus_rate ?? 0, r.admin_bonus ?? 0, r.bonusTo ? r.bonusTo.full_name || r.bonusTo.email : '', r.principal, r.monthly_return, r.lockin_months, r.start_date, r.maturity_date,
       r.bal?.accrued ?? 0, r.bal?.paid ?? 0, r.outstanding, r.label, r.agreement_ref, r.deposit_ref]));
 
@@ -133,147 +133,125 @@ export function Investments() {
 }
 
 /* =============================== RECORD DRAWER =============================== */
+type Found = { id: string; code: string; full_name: string; phone: string; is_ib: boolean; ib_id: string | null; ib_name: string | null } | null;
+const LOCKS: [string, string][] = [['0', 'No lock-in'], ['6', '6 months'], ['12', '12 months'], ['custom', 'Custom']];
+
+/** Super Admin records an investment in one step: who (by phone), which IB they are under, the ROI and IB bonus typed in, lock-in, principal and start date. */
 function RecordInvestment({ preInvestor, onClose, onDone }: { preInvestor: string; onClose: () => void; onDone: (code: string) => void }) {
-  const s = useSettings();
   const act = useAction();
   const t = today();
   const opts = useQuery(async () => {
-    const [people, plans] = await Promise.all([
-      fetchAll<Lite>((a, b) => api.from('profiles').select('id,full_name,code,email,introduced_by').eq('role', 'investor').eq('kyc_status', 'verified').eq('account_status', 'active').order('full_name').range(a, b)),
-      api.from('plans').select('*').eq('status', 'active').order('name'),
+    const [ibs, pre] = await Promise.all([
+      fetchAll<Lite & { phone?: string }>((a, b) => api.from('profiles').select('id,full_name,code,email,phone,branch_id').eq('role', 'investor').eq('can_introduce', true).order('full_name').range(a, b)),
+      preInvestor ? api.from('profiles').select('id,full_name,code,phone').eq('code', preInvestor).maybeSingle() : Promise.resolve({ data: null, error: null })
     ]);
-    const admins = await fetchAll<Lite>((a, b) => api.from('profiles').select('id,full_name,code,email').range(a, b));
-    const pl = must(plans) as Plan[];
-    const versions = pl.length ? must(await api.from('plan_versions').select('*').in('plan_id', pl.map(p => p.id)).order('version', { ascending: false })) as PlanVersion[] : [];
-    return { people, plans: pl, versions, admins };
-  }, []);
+    return { ibs, pre: (pre.data as { full_name: string; phone: string } | null) || null };
+  }, [preInvestor]);
 
-  const [investor, setInvestor] = useState('');
-  const [planId, setPlanId] = useState('');
-  const [lock, setLock] = useState('');
+  const [phone, setPhone] = useState('');
+  const [name, setName] = useState('');
+  const [ib, setIb] = useState('');
+  const [roi, setRoi] = useState('');
+  const [bonus, setBonus] = useState('');
+  const [lock, setLock] = useState('12');
   const [customLock, setCustomLock] = useState('');
   const [amount, setAmount] = useState('');
   const [start, setStart] = useState(t);
-  const [agreement, setAgreement] = useState('');
-  const [deposit, setDeposit] = useState('');
+  const [ref, setRef] = useState('');
   const [notes, setNotes] = useState('');
+  const [found, setFound] = useState<Found>(null);
   const [tried, setTried] = useState(false);
 
+  useEffect(() => { if (opts.data?.pre && !phone) { setPhone(opts.data.pre.phone || ''); setName(opts.data.pre.full_name || ''); } }, [opts.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  // look the phone number up as it is typed: an existing person keeps their record (and IB); an IB's own number records the IB's own investment
+  const digits = phone.replace(/\D/g, '').slice(-10);
   useEffect(() => {
-    if (!opts.data) return;
-    if (!investor) {
-      const pre = opts.data.people.find(p => p.code === preInvestor);
-      if (pre) setInvestor(pre.id);
-    }
-    if (!planId && opts.data.plans.length === 1) setPlanId(opts.data.plans[0].id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [opts.data]);
-
-  // the version in force today: latest version whose effective date has arrived (same rule as the database)
-  const pv = opts.data?.versions.find(v => v.plan_id === planId && v.effective_from <= t);
-  const plan = opts.data?.plans.find(p => p.id === planId);
-  const canCustom = !!pv && pv.allow_custom_lockin && s.allow_custom_lockin;
-  useEffect(() => {
-    if (pv && !(lock === 'custom' && canCustom) && !pv.lockin_options.map(String).includes(lock)) setLock(String(pv.lockin_options.slice().sort((a, b) => a - b)[0] ?? ''));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pv?.id]);
+    if (digits.length !== 10) { setFound(null); return; }
+    let live = true;
+    rpc<Found>('admin_lookup_phone', { p_phone: digits }).then(r => { if (!live) return; setFound(r); if (r) { setName(r.full_name); if (r.ib_id) setIb(r.ib_id); if (r.is_ib) setIb(''); } }).catch(() => {});
+    return () => { live = false; };
+  }, [digits]);
 
   const months = lock === 'custom' ? Number(customLock) : Number(lock);
-  const amt = Number(amount);
-  const open = pv ? t >= pv.eligible_from && (!pv.eligible_to || t <= pv.eligible_to) : false;
+  const r = Number(roi), b = ib ? Number(bonus || 0) : 0, amt = Number(amount);
+  const ibRow = opts.data?.ibs.find(x => x.id === ib);
   const errs: Record<string, string | null> = {
-    investor: !investor ? 'Choose an investor.' : null,
-    plan: !planId ? 'Choose a plan.' : !pv ? 'This plan has no version in effect yet.' : !open ? `Not open for new investments today (eligible ${date(pv.eligible_from)} – ${pv.eligible_to ? date(pv.eligible_to) : 'open-ended'}).` : null,
-    lock: !(Number.isInteger(months) && months >= 1 && months <= 120) ? 'Choose a lock-in.' : null,
-    amount: !(amt > 0) ? 'Enter the principal.' : !/^\d+(\.\d{1,2})?$/.test(amount.trim()) ? 'At most 2 decimals.' : pv && (amt < Number(pv.min_amount) || amt > Number(pv.max_amount)) ? `${plan?.name} accepts ${money(pv.min_amount)} to ${money(pv.max_amount)}.` : null
+    phone: digits.length !== 10 ? 'Enter a 10-digit phone number.' : null,
+    name: !name.trim() ? 'Enter the name.' : null,
+    ib: found && found.ib_id && ib && found.ib_id !== ib ? `${found.full_name} is already under ${found.ib_name}.` : null,
+    roi: !(r > 0 && r <= 100) || !/^\d+(\.\d{1,4})?$/.test(roi.trim()) ? 'Enter the monthly ROI, e.g. 0.25, 2.3, 4.3 or 6.' : null,
+    bonus: ib && (!/^\d+(\.\d{1,4})?$/.test((bonus || '0').trim()) || (r > 0 && b >= r)) ? 'The IB bonus must be 0 or more and less than the ROI.' : null,
+    lock: !(Number.isInteger(months) && months >= 0 && months <= 120) ? 'Enter the lock-in in months (0 to 120).' : null,
+    amount: !(amt > 0) || !/^\d+(\.\d{1,2})?$/.test(amount.trim()) ? 'Enter the principal (at most 2 decimals).' : null,
+    start: !start ? 'Enter the start date.' : null
   };
   const bad = Object.values(errs).some(Boolean);
   const e = (k: string) => (tried ? errs[k] : null);
-  const split = pv ? splitRate(pv.monthly_rate, pv.bonus_rate) : null;
-  const sr = pv && amt > 0 ? splitReturn(amt, pv.monthly_rate, pv.bonus_rate) : null;
-  const mr = sr ? sr.investor : 0;
-  const introBy = opts.data?.people.find(p => p.id === investor)?.introduced_by;
-  const intro = introBy ? opts.data?.admins.find(a => a.id === introBy) : undefined;
-  const maturity = start && months > 0 ? addMonths(start, months) : null;
+  const invRate = r > 0 && b < r ? Math.round((r - b) * 10000) / 10000 : 0;
+  const mine = amt > 0 && invRate ? Math.round(amt * invRate) / 100 : 0;
+  const ibMonthly = amt > 0 && b > 0 ? Math.round(amt * r) / 100 - mine : 0;
 
   const save = async () => {
     setTried(true);
     if (bad) return;
-    const id = await act.run(() => rpc<string>('admin_record_investment', {
-      p_investor: investor, p_plan: planId, p_lockin_months: months, p_principal: amt, p_expected_start: start || null,
-      p_agreement_ref: agreement.trim(), p_deposit_ref: deposit.trim(), p_notes: notes.trim()
-    }), ['Investment recorded', 'Pending funding. Confirm the deposit to activate it.']);
-    if (id) {
-      refreshAll();
-      const { data } = await api.from('investments').select('code').eq('id', id).maybeSingle();
-      onDone((data as { code: string } | null)?.code || '');
-    }
+    const res = await act.run(() => rpc<{ code: string }>('admin_record_direct', {
+      p_name: name.trim(), p_phone: phone.trim(), p_ib: ib || null, p_rate: roi.trim(), p_bonus: ib ? (bonus.trim() || '0') : '0', p_lockin_months: months,
+      p_principal: amt, p_start_date: start, p_reference: ref.trim(), p_notes: notes.trim()
+    }), ['Investment recorded', `${name.trim()} · ${money(amt)} at ${rateShort(r)} a month`]);
+    if (res) { refreshAll(); onDone(res.code); }
   };
 
   return (
-    <Drawer title="Record investment" sub="Step 1 of 2: record. The investment becomes active when the deposit is confirmed." onClose={onClose}
-      foot={<><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" onClick={save} disabled={act.busy || !opts.data}>Record investment</button></>}>
+    <Drawer title="Record investment" sub="Enter everything here. The person is found by phone number, or added if new." onClose={onClose}
+      foot={<><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" onClick={save} disabled={act.busy || !opts.data}>{act.busy ? 'Saving…' : 'Record investment'}</button></>}>
       {opts.error ? <ErrorNote msg={opts.error} retry={opts.reload} /> : !opts.data ? <Loading rows={3} /> : (
         <div className="form">
-          {!opts.data.people.length && <div className="note">No verified, active investors yet. <Link to="/admin/investors">Verify an investor’s KYC</Link> first.</div>}
-          {!opts.data.plans.length && <div className="note">No active plans. <Link to="/admin/plans">Create or activate a plan</Link> first.</div>}
-          <Field label="Investor *" err={e('investor')} hint="Only verified, active investors are listed.">
-            <select className={'input ' + (e('investor') ? 'bad' : '')} value={investor} onChange={ev => setInvestor(ev.target.value)}>
-              <option value="">Choose…</option>
-              {opts.data.people.map(p => <option key={p.id} value={p.id}>{p.full_name || p.email} · {p.code}</option>)}
+          <div className="f-row">
+            <Field label="Phone number *" err={e('phone')} hint={found ? (found.is_ib ? <>This is IB <b>{found.full_name}</b>: it will be their own investment.</> : <>Existing person: <b>{found.full_name}</b> ({found.code}){found.ib_name ? ` · under ${found.ib_name}` : ''}</>) : 'An IB signs in with this number.'}>
+              <input className={'input num ' + (e('phone') ? 'bad' : '')} inputMode="tel" value={phone} onChange={ev => setPhone(ev.target.value)} placeholder="e.g. 98450 12345" />
+            </Field>
+            <Field label="Name *" err={e('name')}><input className={'input ' + (e('name') ? 'bad' : '')} value={name} onChange={ev => setName(ev.target.value)} disabled={!!found} /></Field>
+          </div>
+          <Field label="Under IB" err={e('ib')} hint={found?.is_ib ? 'An IB’s own investment has no IB bonus.' : 'The IB earns the bonus below on this investment. Choose “No IB” if nobody brought them in.'}>
+            <select className={'input ' + (e('ib') ? 'bad' : '')} value={ib} onChange={ev => setIb(ev.target.value)} disabled={!!found?.is_ib || !!found?.ib_id}>
+              <option value="">No IB</option>
+              {opts.data.ibs.filter(x => x.id !== found?.id).map(x => <option key={x.id} value={x.id}>{x.full_name} · {x.code}{x.phone ? ' · ' + x.phone : ''}</option>)}
             </select>
           </Field>
           <div className="f-row">
-            <Field label="Plan *" err={e('plan')}>
-              <select className={'input ' + (e('plan') ? 'bad' : '')} value={planId} onChange={ev => setPlanId(ev.target.value)}>
-                <option value="">Choose…</option>
-                {opts.data.plans.map(p => {
-                  const v = opts.data!.versions.find(x => x.plan_id === p.id && x.effective_from <= t);
-                  return <option key={p.id} value={p.id}>{p.name}{v ? ` · ${Number(v.monthly_rate).toFixed(2)}% (v${v.version})` : ' · no version in effect'}</option>;
-                })}
-              </select>
+            <Field label="Monthly ROI (% per month) *" err={e('roi')} hint="Any rate, e.g. 0.25, 2.3, 3.3, 4.3, 6.">
+              <input className={'input num ' + (e('roi') ? 'bad' : '')} inputMode="decimal" value={roi} onChange={ev => setRoi(ev.target.value)} placeholder="e.g. 6" />
             </Field>
-            <Field label="Lock-in *" err={e('lock')}>
-              <select className="input" value={lock} onChange={ev => setLock(ev.target.value)} disabled={!pv}>
-                {pv?.lockin_options.slice().sort((a, b) => a - b).map(m => <option key={m} value={m}>{m} months</option>)}
-                {canCustom && <option value="custom">Custom…</option>}
-              </select>
+            <Field label="IB bonus (% per month)" err={e('bonus')} hint={ib ? (r > 0 && b < r ? `Investor gets ${invRate}%, ${ibRow?.full_name || 'the IB'} gets ${b}%.` : 'Taken out of the ROI.') : 'Only when the person is under an IB.'}>
+              <input className={'input num ' + (e('bonus') ? 'bad' : '')} inputMode="decimal" value={ib ? bonus : ''} onChange={ev => setBonus(ev.target.value)} disabled={!ib} placeholder={ib ? 'e.g. 2' : '—'} />
             </Field>
           </div>
-          {lock === 'custom' && canCustom && (
-            <Field label="Custom lock-in (months) *" hint="1 to 120 months."><input className="input" inputMode="numeric" value={customLock} onChange={ev => setCustomLock(ev.target.value.replace(/\D/g, ''))} /></Field>
-          )}
-          {pv && (
-            <div className="note info">
-              <b>{plan?.name} v{pv.version}</b> · {rate(pv.monthly_rate)} · {money(pv.min_amount)} – {money(pv.max_amount)} · lock-in {pv.lockin_options.map(m => lockinText(m)).join(' or ')} · payout within {pv.payout_lag_days} days
+          <Field label="Lock-in period *" err={e('lock')}>
+            <div className="chips">
+              {LOCKS.map(([v, l]) => <button key={v} type="button" className={'chip ' + (lock === v ? 'on' : '')} onClick={() => setLock(v)}>{l}</button>)}
             </div>
-          )}
+            {lock === 'custom' && <input className="input num" style={{ marginTop: 8 }} inputMode="numeric" value={customLock} onChange={ev => setCustomLock(ev.target.value)} placeholder="Months, e.g. 3" />}
+          </Field>
           <div className="f-row">
-            <Field label={`Principal (${s.currency}) *`} err={e('amount')} hint={pv ? `Between ${money(pv.min_amount)} and ${money(pv.max_amount)}.` : undefined}>
-              <input className={'input ' + (e('amount') ? 'bad' : '')} inputMode="decimal" value={amount} onChange={ev => setAmount(ev.target.value.replace(/[^\d.]/g, ''))} />
-            </Field>
-            <Field label="Expected start date" hint="Final start date = deposit confirmation date."><input className="input" type="date" value={start} onChange={ev => setStart(ev.target.value)} /></Field>
+            <Field label="Principal (INR) *" err={e('amount')}><input className={'input num ' + (e('amount') ? 'bad' : '')} inputMode="decimal" value={amount} onChange={ev => setAmount(ev.target.value)} placeholder="e.g. 500000" /></Field>
+            <Field label="Start date *" err={e('start')} hint="Returns accrue monthly from this date."><input className="input" type="date" value={start} onChange={ev => setStart(ev.target.value)} /></Field>
           </div>
           <div className="f-row">
-            <Field label="Agreement reference"><input className="input" value={agreement} onChange={ev => setAgreement(ev.target.value)} placeholder="e.g. AGR-2026-014" /></Field>
-            <Field label="Deposit reference"><input className="input" value={deposit} onChange={ev => setDeposit(ev.target.value)} placeholder="UTR / cheque no." /></Field>
+            <Field label="Reference" hint="Bank / UTR or agreement number (optional)."><input className="input mono" value={ref} onChange={ev => setRef(ev.target.value)} /></Field>
+            <Field label="Notes (internal)"><input className="input" value={notes} onChange={ev => setNotes(ev.target.value)} /></Field>
           </div>
-          <Field label="Notes (internal)"><textarea className="input" rows={2} value={notes} onChange={ev => setNotes(ev.target.value)} /></Field>
           <div className="card" style={{ boxShadow: 'none' }}>
-            <div className="card-h"><h3>Calculated terms</h3><div className="r">final figures are calculated by the server</div></div>
+            <div className="card-h"><h3>Summary</h3></div>
             <div className="card-b">
               <dl className="kv">
-                <dt>Plan rate</dt><dd>{pv ? rate(pv.monthly_rate) : '—'}</dd>
-                {split && split.bonus > 0 && <><dt>Investor ROI</dt><dd>{rate(split.investor)} <span className="muted">(what the investor sees)</span></dd>
-                  <dt>Introducer bonus</dt><dd>{rate(split.bonus)}{sr ? ' · ' + money(sr.bonus) + ' / month' : ''} <span className="muted">to {intro ? <b>{intro.full_name || intro.email}</b> : investor ? 'no introducer set on this investor' : 'whoever introduced the investor'}</span></dd></>}
-                <dt>Investor monthly return</dt><dd>{mr ? money(mr) : '—'}</dd>
-                <dt>First accrual</dt><dd>{start ? date(addMonths(start, 1)) : '—'}</dd>
-                <dt>Lock-in end / maturity</dt><dd>{maturity ? date(maturity) : '—'}</dd>
-                <dt>Total return over lock-in</dt><dd>{mr && months > 0 ? money(Math.round(mr * months * 100) / 100) : '—'}</dd>
+                <dt>Monthly ROI</dt><dd>{r > 0 ? rate(r) : '—'}</dd>
+                <dt>Investor gets</dt><dd>{invRate ? <>{rate(invRate)}{amt > 0 && <> · <b>{money(mine)}</b> / month</>}</> : '—'}</dd>
+                <dt>IB bonus</dt><dd>{ib && b > 0 ? <>{rate(b)}{amt > 0 && <> · <b>{money(ibMonthly)}</b> / month</>} <span className="muted">to {ibRow?.full_name}</span></> : <span className="muted">None</span>}</dd>
+                <dt>First return</dt><dd>{start ? date(addMonths(start, 1)) : '—'}</dd>
+                <dt>Lock-in ends</dt><dd>{start && months > 0 ? date(addMonths(start, months)) : months === 0 ? 'No lock-in' : '—'}</dd>
               </dl>
             </div>
           </div>
-          {tried && bad && <p className="hint err">Check the highlighted fields.</p>}
         </div>
       )}
     </Drawer>
@@ -337,7 +315,8 @@ export function InvestmentDetail() {
 
   /* accrual schedule: every period 1..lock-in */
   const base = i.start_date || i.expected_start;
-  const schedule = base ? Array.from({ length: i.lockin_months }, (_, n) => {
+  const periods = i.lockin_months > 0 ? i.lockin_months : accruals.filter(a => a.kind === 'regular').length + 1; // no lock-in: what has accrued plus the next month
+  const schedule = base ? Array.from({ length: periods }, (_, n) => {
     const k = n + 1;
     const acc = accruals.find(a => a.period_no === k && a.kind !== 'reversal');
     const rev = acc ? accruals.find(a => a.reverses_id === acc.id) : undefined;
@@ -364,8 +343,8 @@ export function InvestmentDetail() {
           <button className="btn primary" onClick={() => setDlg('fund')}>Confirm deposit & activate</button>
         </> : !closed ? <button className="btn" onClick={() => setDlg('amend')}>Record amendment</button> : undefined}>
         <h1>{i.code} · {investor ? <Link to={'/admin/investors/' + investor.code}>{investor.full_name || investor.email}</Link> : '—'} <InvBadge i={i} approachingDays={s.approaching_days} /></h1>
-        <p>{i.plan_name} v{i.plan_version} · {lockinText(i.lockin_months)} lock-in · {i.start_date
-          ? `started ${date(i.start_date)} · matures ${date(i.maturity_date)}${daysLeft != null && daysLeft > 0 && !closed ? ` (${daysLeft} days)` : ''}`
+        <p>{i.plan_name}{i.plan_id ? ` v${i.plan_version}` : ''} · {i.lockin_months ? lockinText(i.lockin_months) + ' lock-in' : 'No lock-in'} · {i.start_date
+          ? `started ${date(i.start_date)}${i.maturity_date ? ` · matures ${date(i.maturity_date)}${daysLeft != null && daysLeft > 0 && !closed ? ` (${daysLeft} days)` : ''}` : ''}`
           : i.status === 'cancelled' ? `cancelled${i.cancelled_reason ? ': ' + i.cancelled_reason : ''}` : 'awaiting deposit confirmation'}</p>
       </PageHead>
 
@@ -379,8 +358,8 @@ export function InvestmentDetail() {
       <div className="kpis">
         <Kpi label="Principal" value={money(i.principal)} sub="Original, never changes" />
         <Kpi label="Investor monthly return" value={money(i.monthly_return)}
-          sub={Number(i.admin_bonus || 0) > 0 ? `${rate(i.investor_rate ?? i.monthly_rate)} · + ${money(i.admin_bonus)} (${rate(i.admin_bonus_rate || 0)}) to ${introducedBy ? nm(introducedBy) : 'no introducer set'}` : `${rate(i.monthly_rate)} × principal`} />
-        <Kpi label="Accrued to date" value={money(bal?.accrued || 0)} sub={`${bal?.periods_accrued || 0} of ${i.lockin_months} periods`} tip="Sum of accrual entries, net of reversals." />
+          sub={Number(i.admin_bonus || 0) > 0 ? `${rate(i.investor_rate ?? i.monthly_rate)} · + ${money(i.admin_bonus)} (${rate(i.admin_bonus_rate || 0)}) to ${introducedBy ? nm(introducedBy) : 'no IB'}` : `${rate(i.monthly_rate)} × principal`} />
+        <Kpi label="Accrued to date" value={money(bal?.accrued || 0)} sub={i.lockin_months ? `${bal?.periods_accrued || 0} of ${i.lockin_months} periods` : `${bal?.periods_accrued || 0} months so far`} tip="Sum of accrual entries, net of reversals." />
         <Kpi label="Paid (confirmed)" value={money(bal?.paid || 0)} cls="pos" sub={`${paidCount} payout${paidCount === 1 ? '' : 's'}`} />
         <Kpi label="Outstanding" value={money(outstanding)} sub={Number(bal?.processing || 0) ? `${money(bal!.processing)} processing` : 'Accrued, not yet paid'} subCls={outstanding ? 'warn' : ''} />
       </div>
@@ -455,14 +434,14 @@ export function InvestmentDetail() {
               <dl className="kv">
                 <dt>Plan rate</dt><dd>{rate(i.monthly_rate)}</dd>
                 {Number(i.admin_bonus || 0) > 0 && <><dt>Investor ROI</dt><dd>{rate(i.investor_rate ?? i.monthly_rate)} <span className="muted">(shown to the investor)</span></dd>
-                  <dt>Introducer bonus</dt><dd>{rate(i.admin_bonus_rate || 0)} · {money(i.admin_bonus)} / month</dd>
-                  <dt>Bonus goes to</dt><dd>{introducedBy ? <b>{nm(introducedBy)}</b> : <span className="muted">No introducer set. Set “Introduced by” on the investor.</span>}</dd></>}
+                  <dt>IB bonus</dt><dd>{rate(i.admin_bonus_rate || 0)} · {money(i.admin_bonus)} / month</dd>
+                  <dt>Bonus goes to</dt><dd>{introducedBy ? <b>{nm(introducedBy)}</b> : <span className="muted">No IB. Set “Introduced by” on the investor.</span>}</dd></>}
                 <dt>Method</dt><dd>Simple interest</dd>
-                <dt>Plan</dt><dd>{plan ? <Link to={'/admin/plans/' + plan.code}>{i.plan_name}</Link> : i.plan_name} · v{i.plan_version}</dd>
+                <dt>Plan</dt><dd>{plan ? <><Link to={'/admin/plans/' + plan.code}>{i.plan_name}</Link> · v{i.plan_version}</> : i.plan_name}</dd>
                 <dt>Lock-in</dt><dd>{lockinText(i.lockin_months)}</dd>
                 <dt>Principal</dt><dd>{money(i.principal)}</dd>
                 <dt>Investor monthly return</dt><dd>{money(i.monthly_return)}</dd>
-                <dt>Total over lock-in</dt><dd>{money(Math.round(Number(i.monthly_return) * i.lockin_months * 100) / 100)}</dd>
+                {i.lockin_months > 0 && <><dt>Total over lock-in</dt><dd>{money(Math.round(Number(i.monthly_return) * i.lockin_months * 100) / 100)}</dd></>}
                 <dt>Payout lag</dt><dd>{i.payout_lag_days} day{i.payout_lag_days === 1 ? '' : 's'} after accrual</dd>
                 <dt>Agreement</dt><dd className="mono">{i.agreement_ref || '—'}</dd>
                 <dt>Deposit reference</dt><dd className="mono">{i.deposit_ref || '—'}</dd>

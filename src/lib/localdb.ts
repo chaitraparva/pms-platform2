@@ -2,7 +2,7 @@
 // On-device database. Tables live in memory and are saved to this browser's localStorage; uploaded
 // files (brochures, documents, photos) are too large for localStorage and are kept in IndexedDB.
 // Every money-moving action below follows the original database rules.
-import { splitRate, investorPlanName, defaultBonus, STANDARD_PLANS, STANDARD_RATES } from './format';
+import { splitRate, investorPlanName, defaultBonus, STANDARD_PLANS } from './format';
 
 type Row = Record<string, any>;
 interface Store { v: number; tables: Record<string, Row[]>; seq: Record<string, number>; users: { id: string; email: string; pw: string }[] }
@@ -14,6 +14,11 @@ export const INVESTOR_EMAIL = 'ananya.rao@example.com';
 export const INVESTOR_PASSWORD = 'Investor@2026';
 /** A sample investor introduced by Ananya (she has the right to add investors). Same password as Ananya. */
 export const LOWER_INVESTOR_EMAIL = 'rahul.menon@example.com';
+/** Sample IB login: IBs sign in with their phone number. */
+export const IB_PHONE = '9845010000';
+export const IB_PASSWORD = 'IB@Parva2026';
+/** Phone numbers are compared on their last 10 digits (so +91 98450 10000 and 9845010000 match). */
+export const phoneKey = (s: unknown) => String(s ?? '').replace(/\D/g, '').slice(-10);
 /** Password of the sample introducer admins (Ravi, Priya, Suresh). */
 export const INTRODUCER_PASSWORD = 'Admin@2026';
 
@@ -191,7 +196,8 @@ export function canWrite(table: string): boolean { return isAdmin() && ['documen
 function runAccrualsFor(i: Row, asOf: string): number {
   if (!i.start_date || !LIVE.includes(i.status)) return 0;
   let n = 0;
-  for (let k = 1; k <= i.lockin_months; k++) {
+  const last = i.lockin_months > 0 ? i.lockin_months : 1200; // no lock-in: a return every month until the investment is closed
+  for (let k = 1; k <= last; k++) {
     const end = addMonths(i.start_date, k); if (end > asOf) break;
     if (T('accruals').some(a => a.investment_id === i.id && a.period_no === k && (a.kind === 'regular' || a.kind === 'stub'))) continue;
     const start = addMonths(i.start_date, k - 1);
@@ -201,12 +207,13 @@ function runAccrualsFor(i: Row, asOf: string): number {
       batch_ref: null, payment_ref: null, failure_reason: null, approved_by: null, approved_at: null, sent_by: null, sent_at: null, confirmed_by: null, confirmed_at: null, paid_on: null, updated_at: nowIso() });
     ledger({ investment_id: i.id, investor_id: i.investor_id, type: 'return_accrual', amount: Number(i.monthly_return), status: 'posted', occurred_on: end, reference: i.code + ' · period ' + k,
       note: 'Monthly return ' + investorRate(i).toFixed(2) + '% on ' + fmtMoney(i.principal), source_table: 'accruals', source_id: acc.id, created_by: null });
-    notify(i.investor_id, 'accrual', 'Return accrued on ' + i.code + ': ' + fmtMoney(i.monthly_return), 'Month ' + k + ' of ' + i.lockin_months + ' · not yet paid', '/portal/investments/' + i.code, 'accruals', acc.id);
+    notify(i.investor_id, 'accrual', 'Return accrued on ' + i.code + ': ' + fmtMoney(i.monthly_return), 'Month ' + k + (i.lockin_months > 0 ? ' of ' + i.lockin_months : '') + ' · not yet paid', '/portal/investments/' + i.code, 'accruals', acc.id);
     if (Number(i.admin_bonus) > 0) T('admin_bonuses').push({ id: uuid(), code: 'BON-' + pad(nextSeq('bonus', 1), 6), investment_id: i.id, investor_id: i.investor_id,
       admin_id: T('profiles').find(p => p.id === i.investor_id)?.introduced_by ?? null, accrual_id: acc.id, period_no: k, accrual_date: end, rate: Number(i.admin_bonus_rate),
       amount: Number(i.admin_bonus), status: 'accrued', payment_ref: null, paid_on: null, paid_by: null, created_at: nowIso(), updated_at: nowIso() });
   }
-  if (i.status === 'active' && i.maturity_date <= asOf) {
+  if (!i.maturity_date) { /* no lock-in: nothing to unlock */ }
+  else if (i.status === 'active' && i.maturity_date <= asOf) {
     i.status = 'matured'; i.updated_at = nowIso();
     notify(i.investor_id, 'unlocked', 'Principal unlocked on ' + i.code, fmtMoney(i.principal) + ' has completed its ' + i.lockin_months + '-month lock-in.', '/portal/investments?view=unlocked', 'investments', i.id);
   } else if (i.status === 'active' && diffDays(asOf, i.maturity_date) <= settings().approaching_days) {
@@ -375,7 +382,7 @@ function dashboard(branch: string | null, pFrom: string | null, pTo: string | nu
   };
   const payStatus: Record<string, { count: number; amount: number }> = {};
   pay.forEach(p => { const x = payStatus[p.status] ||= { count: 0, amount: 0 }; x.count++; x.amount = round2(x.amount + Number(p.amount)); });
-  const maturing = live.filter(i => !i.unlocked && diffDays(t, i.maturity_date) >= 0 && diffDays(t, i.maturity_date) <= s.approaching_days);
+  const maturing = live.filter(i => !i.unlocked && i.maturity_date && diffDays(t, i.maturity_date) >= 0 && diffDays(t, i.maturity_date) <= s.approaching_days);
   const lockins = [...new Set(live.map(i => i.lockin_months))].sort((a, b) => a - b);
   return {
     today: t, from, to, branch_id: branch,
@@ -444,6 +451,8 @@ export function rpcCall(fn: string, a: Row): unknown {
       touched('profiles', 'notifications'); return null;
     }
     case 'my_network': return myNetwork();
+    case 'admin_lookup_phone': requireAdmin(); return lookupPhone(a.p_phone);
+    case 'admin_record_direct': { const r = recordDirect(a); touched('profiles', 'investments', 'ledger_entries', 'accruals', 'payouts', 'notifications', 'admin_bonuses'); return r; }
     case 'admin_dashboard': runAllAccruals(); return dashboard(a.p_branch || null, a.p_from || null, a.p_to || null);
     case 'admin_save_settings': {
       requireAdmin(); const p = a.p || {}; const s = settings(); const before = { ...s };
@@ -607,7 +616,7 @@ export function rpcCall(fn: string, a: Row): unknown {
       requireAdmin();
       return T('investments').filter(i => !['cancelled', 'redeemed'].includes(i.status)).map(i => {
         const p = T('profiles').find(x => x.id === i.investor_id) || {} as Row;
-        const r = [!STANDARD_RATES.includes(Number(i.monthly_rate)) ? `Rate ${Number(i.monthly_rate)}% is not one of ${STANDARD_RATES.map(r => r + '%').join(', ')}` : '', ![6, 12].includes(i.lockin_months) ? `Lock-in of ${i.lockin_months} months` : '',
+        const r = [Number(i.admin_bonus_rate || 0) > 0 && !p.introduced_by ? 'Has an IB bonus but no IB' : '', '',
           !p.branch_id ? 'Investor has no branch' : '', ['active', 'matured'].includes(i.status) && !i.start_date ? 'Missing start date' : ''].filter(Boolean);
         return r.length ? { investment_id: i.id, code: i.code, investor: p.full_name || p.email, reason: r.join('; ') } : null;
       }).filter(Boolean).sort((x: any, y: any) => x.code.localeCompare(y.code));
@@ -713,7 +722,7 @@ function myNetwork(): Row | null {
  *  The new investor starts unverified and the investment waits for the Super Admin to confirm the deposit. */
 export async function introduceInvestor(u: Row): Promise<{ code: string; investment: string }> {
   const mePr = me();
-  if (!mePr || mePr.role !== 'investor' || mePr.account_status !== 'active' || !mePr.can_introduce) fail('You do not have permission to add investors. Ask the Super Admin.');
+  if (!isAdmin()) fail('Only the Super Admin can add investors.');
   const email = String(u.email || '').trim().toLowerCase(), name = String(u.full_name || '').trim();
   if (!name) fail('Enter the investor’s full name.');
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) fail('Enter a valid email address.');
@@ -737,6 +746,94 @@ export async function introduceInvestor(u: Row): Promise<{ code: string; investm
     notify(a2.id, 'introducer_new', (mePr!.full_name || 'An investor') + ' added a new investor', name + ' · ' + fmtMoney(inv.principal) + ' on ' + plan.name + '. Verify KYC and confirm the deposit.', '/admin/investors/' + code, 'profiles', id));
   persist('profiles', 'investments', 'ledger_entries', 'notifications', 'audit_logs');
   return { code, investment: inv.code };
+}
+
+/* ---------- Super Admin records everything: IBs and the people under them ---------- */
+const findByPhone = (phone: unknown) => { const k = phoneKey(phone); return k.length === 10 ? T('profiles').find(p => p.role === 'investor' && phoneKey(p.phone) === k) || null : null; };
+const isIB = (p: Row | null | undefined) => !!p && p.role === 'investor' && !!p.can_introduce;
+
+/** Who a phone number belongs to (used by the Record investment form). */
+function lookupPhone(phone: unknown): Row | null {
+  const p = findByPhone(phone); if (!p) return null;
+  const ib = p.introduced_by ? T('profiles').find(x => x.id === p.introduced_by) : null;
+  return { id: p.id, code: p.code, full_name: p.full_name, phone: p.phone, is_ib: isIB(p), ib_id: p.introduced_by || null, ib_name: ib ? ib.full_name : null };
+}
+
+/** Records an investment in one step: the person (found or created by phone number), the IB they are under,
+ *  the monthly ROI and IB bonus typed by the Super Admin, lock-in (0 = no lock-in), principal and start date. */
+function recordDirect(a: Row): { id: string; code: string; investor: string } {
+  requireAdmin();
+  const s = settings();
+  const name = str(a.p_name).trim(), key = phoneKey(a.p_phone);
+  if (key.length !== 10) fail('Enter a 10-digit phone number.');
+  const rate = Number(a.p_rate), bonusIn = blank(a.p_bonus) ? 0 : Number(a.p_bonus), lock = Number(a.p_lockin_months || 0), principal = Number(a.p_principal);
+  if (!(rate > 0 && rate <= 100) || !/^\d+(\.\d{1,4})?$/.test(String(a.p_rate).trim())) fail('Enter the monthly ROI, e.g. 0.25, 2.3 or 6 (at most 4 decimals).');
+  if (!(bonusIn >= 0)) fail('Enter the IB bonus as 0 or more.');
+  if (!(Number.isInteger(lock) && lock >= 0 && lock <= 120)) fail('Lock-in must be 0 (no lock-in) to 120 months.');
+  if (!(principal > 0) || round2(principal) !== principal) fail('Enter the principal (at most 2 decimals).');
+  const start = str(a.p_start_date); if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) fail('Enter the start date.');
+  let person = findByPhone(key);
+  const ibId = blank(a.p_ib) ? null : String(a.p_ib);
+  const ib = ibId ? T('profiles').find(p => p.id === ibId) : null;
+  if (ibId && !isIB(ib)) fail('Choose a valid IB.');
+  if (person && isIB(person) && ibId) fail(`${person.full_name} is an IB. This is their own investment, so it cannot be under another IB.`);
+  if (person && ibId && ibId === person.id) fail('A person cannot be under themselves.');
+  if (person && person.introduced_by && ibId && person.introduced_by !== ibId) {
+    const cur = T('profiles').find(p => p.id === person!.introduced_by);
+    fail(`${person.full_name} (this phone number) is already under ${cur?.full_name || 'another IB'}.`);
+  }
+  if (!person) {
+    if (!name) fail('Enter the name.');
+    const id = uuid(), code = 'INVR-' + nextSeq('investor', 1001);
+    person = profileRow(id, '', name, code, 'investor', 'verified', { phone: a.p_phone, city: a.p_city, branch_id: ib?.branch_id ?? (blank(a.p_branch) ? null : a.p_branch), introduced_by: ibId });
+    T('profiles').push(person);
+    audit('investor.create', 'profile', id, code, 'Added with a recorded investment', null, { full_name: name, phone: a.p_phone, ib: ib?.code || null });
+  } else if (ibId && !person.introduced_by) { person.introduced_by = ibId; person.updated_at = nowIso(); }
+  const underIb = person.introduced_by ? T('profiles').find(p => p.id === person!.introduced_by) : null;
+  const bonus = underIb ? bonusIn : 0;
+  if (bonus >= rate) fail('The IB bonus must be less than the monthly ROI.');
+  const id = uuid(), code = 'INV-' + nextSeq('investment', 1001);
+  const maturity = lock > 0 ? addMonths(start, lock) : null;
+  const v = applySplit({ admin_bonus_rate: bonus, id, code, investor_id: person.id, plan_id: null, plan_version_id: null, plan_name: rate + '% Monthly', plan_version: 1, monthly_rate: rate,
+    lockin_months: lock, early_redemption: 'not_permitted', early_fee_pct: 0, payout_lag_days: s.default_payout_lag_days, terms: s.default_terms, risk_disclosure: s.default_risk_disclosure,
+    principal, monthly_return: monthlyReturn(principal, rate), status: 'active', expected_start: start, start_date: start, lockin_end_date: maturity || start, maturity_date: maturity,
+    request_from_date: maturity ? addDays(maturity, -s.request_window_days) : null, agreement_ref: str(a.p_reference), deposit_ref: str(a.p_reference), notes: str(a.p_notes), cancelled_reason: null,
+    created_by: currentUid, created_at: nowIso(), activated_by: currentUid, activated_at: nowIso(), updated_at: nowIso() });
+  T('investments').push(v);
+  ledger({ investment_id: id, investor_id: person.id, type: 'deposit', amount: principal, status: 'confirmed', occurred_on: start, reference: str(a.p_reference), note: 'Recorded by Super Admin', source_table: 'investments', source_id: id });
+  ledger({ investment_id: id, investor_id: person.id, type: 'allocation', amount: principal, status: 'posted', occurred_on: start, reference: str(a.p_reference), note: v.plan_name, source_table: 'investments', source_id: id });
+  audit('investment.create', 'investment', id, code, 'Recorded by Super Admin', null, { principal, rate, ib_bonus: bonus, ib: underIb?.code || null, lockin_months: lock, start_date: start });
+  runAccrualsFor(v, today());
+  return { id, code, investor: person.code };
+}
+
+/** Creates an IB login (signs in with phone number + password), or gives an existing person an IB login. */
+export async function createIB(u: Row): Promise<{ id: string; code: string }> {
+  requireAdmin();
+  const key = phoneKey(u.phone);
+  if (key.length !== 10) fail('Enter a 10-digit phone number. The IB signs in with it.');
+  if (String(u.password || '').length < 8) fail('Password must be at least 8 characters.');
+  let p = u.person_id ? T('profiles').find(x => x.id === u.person_id) || null : findByPhone(key);
+  if (p && p.role !== 'investor') fail('This phone number belongs to an administrator.');
+  if (p && isIB(p)) fail(`${p.full_name} already has an IB login with this phone number.`);
+  const clash = T('profiles').find(x => x.id !== p?.id && x.role === 'investor' && phoneKey(x.phone) === key);
+  if (clash) fail(`This phone number already belongs to ${clash.full_name}.`);
+  const email = blank(u.email) ? '' : String(u.email).trim().toLowerCase();
+  if (email && S.users.some(x => x.email === email && x.id !== p?.id)) fail('This email is already used by another login.');
+  if (!p) {
+    if (blank(u.full_name)) fail('Enter the IB’s name.');
+    const id = uuid(), code = 'INVR-' + nextSeq('investor', 1001);
+    p = profileRow(id, email, String(u.full_name).trim(), code, 'investor', 'verified', { phone: u.phone, city: u.city, branch_id: blank(u.branch_id) ? null : u.branch_id });
+    T('profiles').push(p);
+  }
+  if (p.introduced_by) fail(`${p.full_name} is under another IB. An IB reports to the Super Admin only.`);
+  p.can_introduce = true; p.phone = str(u.phone, p.phone); if (email) p.email = email; p.kyc_status = 'verified'; p.updated_at = nowIso();
+  const pw = await hash(String(u.password));
+  const existing = S.users.find(x => x.id === p!.id);
+  if (existing) existing.pw = pw; else S.users.push({ id: p.id, email: email || key + '@ib.login', pw });
+  audit('ib.create', 'profile', p.id, p.code, 'IB login created', null, { full_name: p.full_name, phone: p.phone });
+  persist('profiles', 'audit_logs');
+  return { id: p.id, code: p.code };
 }
 
 /* ---------- accounts ---------- */
@@ -767,7 +864,10 @@ export async function adminResetPassword(userId: string, pw: string) {
   const p = T('profiles').find(x => x.id === userId); audit('user.password_reset', 'profile', userId, p?.code || p?.email || '', 'Temporary password set by administrator', null, null); persist('audit_logs');
 }
 export async function checkLogin(email: string, pw: string): Promise<string | null> {
-  const u = S.users.find(x => x.email === email.trim().toLowerCase());
+  // an IB signs in with the phone number the Super Admin registered
+  const key = email.includes('@') ? '' : phoneKey(email);
+  const ib = key.length === 10 ? T('profiles').find(p => p.role === 'investor' && p.can_introduce && phoneKey(p.phone) === key) : null;
+  const u = ib ? S.users.find(x => x.id === ib.id) : S.users.find(x => x.email === email.trim().toLowerCase());
   return u && u.pw === await hash(pw) ? u.id : null;
 }
 export const userEmail = (id: string) => S.users.find(u => u.id === id)?.email || '';
@@ -807,7 +907,7 @@ async function seed(): Promise<Store> {
   try { return await seedData(); } finally { seeding = false; }
 }
 async function seedData(): Promise<Store> {
-  S = { v: 7, tables: Object.fromEntries(TABLES.map(t => [t, []])), seq: {}, users: [] };
+  S = { v: 8, tables: Object.fromEntries(TABLES.map(t => [t, []])), seq: {}, users: [] };
   T('settings').push({ id: 1, company_name: 'Parva Realty', tagline: 'Every investment, return and maturity in one place.', logo_url: null, primary_color: '#0F2147', currency: 'INR', locale: 'en-IN',
     timezone: 'Asia/Kolkata', approaching_days: 60, request_window_days: 30, default_payout_lag_days: 3, four_eyes: true, allow_custom_lockin: false, lockin_options: [6, 12],
     default_terms: 'Returns are simple interest on the original principal at the monthly rate in this agreement. Unpaid returns are not added to principal.',
@@ -817,43 +917,35 @@ async function seedData(): Promise<Store> {
   S.users.push({ id: adminId, email: ADMIN_EMAIL, pw: await hash(ADMIN_PASSWORD) });
   T('profiles').push(profileRow(adminId, ADMIN_EMAIL, 'Chaitra', 'ADM-' + nextSeq('admin', 1), 'super_admin', 'verified', { created_at: addMonths(today(), -13) + 'T09:00:00Z' }));
   currentUid = adminId;
-  const introducers = [adminId, ...await addSampleIntroducers()];
   const br = ([['TMK', 'Tumkur'], ['BLR', 'Bangalore']] as [string, string][]).map(([code, name]) => { const id = uuid(); T('branches').push({ id, code, name, city: name, status: 'active', created_by: adminId, created_at: nowIso(), updated_at: nowIso() }); return id; });
-  const start = addMonths(today(), -12);
-  const plans = STANDARD_PLANS.map(([code, name, rate]) => {
-    const id = createPlan(code, name, `Simple monthly return of ${rate}% on the original principal, paid monthly.`, { monthly_rate: rate, bonus_rate: defaultBonus(rate), min_amount: 100000, max_amount: 50000000, lockin_options: [6, 12], eligible_from: start, effective_from: start });
-    setPlanStatus(id, 'active', 'Standard plan published'); return id;
-  });
 
-  // Sample investors (the first one has a login so the investor portal can be tried).
+  // Sample IBs: they sign in with their phone number. Everything below is entered by the Super Admin.
+  const ibs: [string, string, string, number, string][] = [
+    ['Ananya Rao', '+91 98450 10000', 'Bangalore', 1, INVESTOR_EMAIL], ['Ravi Kumar', '+91 99860 20000', 'Bangalore', 1, ''], ['Priya Sharma', '+91 99860 24111', 'Tumkur', 0, '']
+  ];
+  const ibIds: string[] = [];
+  for (const [name, phone, city, b, email] of ibs) ibIds.push((await createIB({ full_name: name, phone, city, branch_id: br[b], email, password: IB_PASSWORD })).id);
+  // People under the IBs (no login). [name, phone, city, IB index or -1 for none]
   const people: [string, string, string, number][] = [
-    ['Ananya Rao', INVESTOR_EMAIL, 'Bangalore', 1], ['Rahul Menon', 'rahul.menon@example.com', 'Bangalore', 1], ['Fatima Shaikh', 'fatima.shaikh@example.com', 'Tumkur', 0],
-    ['Vikram Iyer', 'vikram.iyer@example.com', 'Tumkur', 0], ['Meera Kapoor', 'meera.kapoor@example.com', 'Bangalore', 1], ['Arjun Nair', 'arjun.nair@example.com', 'Tumkur', 0],
-    ['Sana Qureshi', 'sana.qureshi@example.com', 'Bangalore', 1], ['Kavya Reddy', 'kavya.reddy@example.com', 'Tumkur', 0]
+    ['Rahul Menon', '+91 98450 11373', 'Bangalore', 0], ['Meera Kapoor', '+91 98450 15492', 'Bangalore', 0],
+    ['Fatima Shaikh', '+91 98450 12746', 'Bangalore', 1], ['Vikram Iyer', '+91 98450 14119', 'Bangalore', 1], ['Kavya Reddy', '+91 98450 19611', 'Bangalore', 1],
+    ['Arjun Nair', '+91 98450 16865', 'Tumkur', 2], ['Sana Qureshi', '+91 98450 18238', 'Tumkur', 2], ['Deepak Rao', '+91 98450 21000', 'Tumkur', -1]
   ];
-  const ids = await Promise.all(people.map(async ([name, email, city, b], i) => {
-    const id = uuid();
-    S.users.push({ id, email, pw: await hash(i === 0 || email === LOWER_INVESTOR_EMAIL ? INVESTOR_PASSWORD : uuid()) });
-    T('profiles').push(profileRow(id, email, name, 'INVR-' + nextSeq('investor', 1001), 'investor', i === 7 ? 'pending' : 'verified',
-      { city, phone: '+91 98450 ' + String(10000 + i * 1373).slice(-5), branch_id: br[b], bank_name: ['HDFC', 'ICICI', 'SBI', 'Axis'][i % 4], bank_account_masked: '••••' + (4021 + i * 37), bank_ifsc: ['HDFC0001234', 'ICIC0004567', 'SBIN0007890', 'UTIB0001122'][i % 4], introduced_by: introducers[SAMPLE_INTRODUCED_BY[email] ?? 0], created_at: addMonths(today(), -12 + i) + 'T10:00:00Z' }));
-    return id;
-  }));
-  // Ananya may add investors; Rahul Menon and Meera Kapoor are investors she brought in, so their bonus goes to her.
-  T('profiles').forEach(p => {
-    if (p.email === INVESTOR_EMAIL) p.can_introduce = true;
-    if (SAMPLE_BY_INVESTOR.includes(p.email)) p.introduced_by = ids[0];
-  });
-  // [investor, plan, lock-in, principal, months ago it started]
-  const P = [0, 1, 4]; // the sample book was written for 2%, 3.3% and 6% (positions in STANDARD_PLANS)
-  const book: [number, number, number, number, number][] = [
-    [0, 1, 12, 500000, 7], [0, 0, 6, 200000, 4], [1, 2, 12, 1000000, 11], [1, 1, 12, 500000, 3], [2, 0, 12, 500000, 10], [3, 1, 6, 300000, 8],
-    [4, 1, 6, 750000, 5], [4, 2, 12, 1500000, 2], [5, 1, 12, 1500000, 9], [6, 2, 12, 2500000, 6], [6, 0, 6, 300000, 1]
+  const who = (n: string) => ibs.find(x => x[0] === n) || people.find(x => x[0] === n)!;
+  // [name, monthly ROI %, IB bonus %, lock-in months (0 = none), principal, months ago it started]
+  const book: [string, number, number, number, number, number][] = [
+    ['Ananya Rao', 3.3, 0, 12, 500000, 7], ['Ananya Rao', 2, 0, 0, 200000, 4],
+    ['Rahul Menon', 6, 2, 12, 1000000, 11], ['Rahul Menon', 2.3, 0.5, 6, 500000, 3],
+    ['Meera Kapoor', 4.3, 1.3, 0, 750000, 5], ['Meera Kapoor', 6, 2, 12, 1500000, 2],
+    ['Fatima Shaikh', 2, 0.5, 12, 500000, 10], ['Vikram Iyer', 3.3, 1, 6, 300000, 8], ['Kavya Reddy', 5, 1.5, 12, 1200000, 6],
+    ['Arjun Nair', 3.3, 1, 12, 1500000, 9], ['Sana Qureshi', 6, 2, 12, 2500000, 6], ['Sana Qureshi', 0.25, 0.05, 0, 300000, 1],
+    ['Deepak Rao', 4, 0, 6, 400000, 5]
   ];
-  book.forEach(([who, plan, lock, amt, ago], k) => {
-    const id = recordInvestment({ p_investor: ids[who], p_plan: plans[P[plan]], p_lockin_months: lock, p_principal: amt, p_agreement_ref: 'AGR-' + (2001 + k), p_deposit_ref: '' });
-    activateInvestment(id, addDays(addMonths(today(), -ago), -((k * 3) % 9)), 'UTR ' + (58120000 + k * 7919), 'Deposit confirmed');
+  book.forEach(([name, rate, bonus, lock, amt, ago], k) => {
+    const w = who(name), p = people.find(x => x[0] === name);
+    recordDirect({ p_name: name, p_phone: w[1], p_city: w[2], p_ib: p && p[3] >= 0 ? ibIds[p[3]] : null, p_branch: br[w[3]], p_rate: rate, p_bonus: bonus, p_lockin_months: lock,
+      p_principal: amt, p_start_date: addDays(addMonths(today(), -ago), -((k * 3) % 9)), p_reference: 'UTR ' + (58120000 + k * 7919) });
   });
-  recordInvestment({ p_investor: ids[5], p_plan: plans[P[0]], p_lockin_months: 6, p_principal: 250000, p_agreement_ref: 'AGR-2099', p_deposit_ref: '' });
   // Older returns have been paid out; the latest ones are still with the team.
   const t = today();
   T('payouts').forEach(p => {
@@ -917,6 +1009,8 @@ export function ready(): Promise<void> {
   return readyP ||= (async () => {
     let saved: Store | undefined;
     saved = load();
+    // v8: Super Admin + IB only. Browsers with data from before start again from the new sample.
+    if (saved && (saved.v || 1) < 8) saved = undefined;
     if (saved) {
       S = saved; TABLES.forEach(t => { S.tables[t] ||= []; });
       // move browsers that still have the old blue brand colour onto the current blue theme

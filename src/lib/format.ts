@@ -107,7 +107,7 @@ export const INV_BADGE: Record<string, string> = {
   'Locked': 'b-violet sq', 'Unlocking soon': 'b-amber', 'Unlocked': 'b-green', 'Closed': 'b-grey', 'Cancelled': 'b-grey', 'Pending funding': 'b-grey'
 };
 /** Lock-in period in words: 6 months, 1 year (12 months). */
-export const lockinText = (m: number) => (m === 12 ? '1 year (12 months)' : m % 12 === 0 ? `${m / 12} years (${m} months)` : `${m} months`);
+export const lockinText = (m: number) => (!m ? 'No lock-in' : m === 12 ? '1 year (12 months)' : m % 12 === 0 ? `${m / 12} years (${m} months)` : `${m} months`);
 /** Monthly rate as a short label: 2%, 3.3%, 4%, 5%, 6%. */
 export const rateShort = (r: number | string) => String(Number(Number(r).toFixed(4))) + '%';
 export const PAY_BADGE: Record<string, [string, string]> = {

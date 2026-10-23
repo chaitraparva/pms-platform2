@@ -21,6 +21,7 @@ import { Settings } from './Settings';
 import { Search } from './Search';
 import { Ranking } from './Ranking';
 import { Bonuses } from './Bonuses';
+import { IBs } from './IBs';
 import { SubTabs } from '../ui/kit';
 
 export default function AdminApp() {
@@ -32,8 +33,8 @@ export default function AdminApp() {
   const items: NavItem[] = [
     { group: 'Dashboard' }, { to: '/admin', label: 'Overview', icon: 'home', also: ['/admin/branches', '/admin/ranking'] },
     { group: 'Manage' }, { to: '/admin/investors', label: 'Investors', icon: 'users', count: counts.data?.payouts, also: ['/admin/investments', '/admin/payouts'] },
-    { to: '/admin/plans', label: 'Investment Plans', icon: 'plans' },
-    { to: '/admin/bonuses', label: 'Introducer Bonus', icon: 'roi' },
+    { to: '/admin/ibs', label: 'IBs', icon: 'users' },
+    { to: '/admin/bonuses', label: 'IB Bonus', icon: 'roi' },
     { to: '/admin/announcements', label: 'Updates', icon: 'announce', also: ['/admin/brochures'] },
     { to: '/admin/properties', label: 'Parva Properties', icon: 'building' },
     { to: '/admin/settings', label: 'Settings', icon: 'settings' }
@@ -52,6 +53,7 @@ export default function AdminApp() {
         <Route path="investments/:code" element={<InvestmentDetail />} />
         <Route path="accruals" element={<Accruals />} />
         <Route path="bonuses" element={<Bonuses />} />
+        <Route path="ibs" element={<IBs />} />
         <Route path="payouts" element={<>{peopleTabs}<Payouts /></>} />
         <Route path="branches" element={<Branches />} />
         <Route path="ranking" element={<Ranking />} />

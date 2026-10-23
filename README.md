@@ -1,6 +1,6 @@
 # PMS Platform (browser-only)
 
-A Super Admin dashboard and an Investor portal for monthly simple-interest plans (2%, 3.3%, 4%, 5% and 6%) with 6- and 12-month lock-ins, Bangalore and Tumkur branches, brochures and Parva Realty properties.
+A Super Admin dashboard and an IB portal for monthly simple-interest investments (any monthly ROI, with or without a lock-in), Bangalore and Tumkur branches, brochures and Parva Realty properties.
 
 This version needs no backend, database service or keys. Everything runs in the browser:
 
@@ -10,21 +10,22 @@ This version needs no backend, database service or keys. Everything runs in the 
 
 ## Sign in
 
-Choose **Super Admin** or **Investor** on the sign-in page, then enter the email and password.
+There are two logins. Choose **Super Admin** or **IB** on the sign-in page.
 
-| Role | Email | Password |
-|------|-------|----------|
+| Role | Signs in with | Password |
+|------|---------------|----------|
 | Super Admin | chaitra@parvarealty.ae | Parva@2026 |
-| Investor who can add investors | ananya.rao@example.com | Investor@2026 |
-| Investor brought in by Ananya | rahul.menon@example.com | Investor@2026 |
-| Super Admin (introducer) | ravi.kumar@example.com | Admin@2026 |
-| Super Admin (introducer) | priya.sharma@example.com | Admin@2026 |
-| Super Admin (introducer) | suresh.gowda@example.com | Admin@2026 |
+| IB (sample) | 98450 10000 (Ananya Rao) | IB@Parva2026 |
+| IB (sample) | 99860 20000 (Ravi Kumar) | IB@Parva2026 |
+| IB (sample) | 99860 24111 (Priya Sharma) | IB@Parva2026 |
 
-The introducers are the admins who brought in the sample investors, so the admin bonus on those investments goes to them:
-Chaitra → Ananya Rao · Ravi → Rahul Menon, Vikram Iyer, Kavya Reddy · Priya → Fatima Shaikh, Arjun Nair · Suresh → Meera Kapoor, Sana Qureshi.
+## How it works
 
-The Super Admin can add investors and other admins with a temporary password, and reset passwords from the investor's page.
+- **Super Admin enters everything.** There is no investor login.
+- **IBs** page → **Create IB**: name, phone number (the IB's login) and password. A person already on file can also be given an IB login from their page.
+- **Record investment**: phone number, name, **Under IB** (or no IB), **monthly ROI %** (any rate, e.g. 0.25, 2.3, 4.3, 6), **IB bonus %** (taken out of the ROI: 6% with a 2% bonus = 4% to the investor + 2% to the IB), lock-in (no lock-in, 6, 12 or custom months), principal (INR) and start date. The person is found by phone number or added if new. Recording with an IB's own phone number records the IB's own investment.
+- **IB login** (view only): their own investments and returns, the people under them with each person's investment, and the IB bonus they earn from each. An IB cannot add or change anything.
+- The Super Admin pays the IB bonus from **IB Bonus** and investors' returns from **Payouts**.
 
 ## Run and deploy
 
@@ -35,13 +36,3 @@ npm run build      # output in dist/
 ```
 
 On Vercel, import the repository with the Vite preset. No environment variables are needed.
-
-## Investors who bring in investors
-
-The Super Admin can allow any investor to add investors (investor page → **Allow adding investors**).
-That investor gets an **Add investor** button and a **My investors** section below their own investments:
-the investors they brought in, those investors' investments, and the bonus they earn from them
-(the bonus % the Super Admin sets on each plan under Investment Plans). People they add wait for the Super Admin to verify KYC
-and confirm the deposit. The investors they bring in only ever see their own investment and returns.
-The Super Admin sees who brought in whom on every investor and investment, and pays the bonus from **Introducer Bonus**.
-

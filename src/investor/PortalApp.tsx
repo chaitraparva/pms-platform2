@@ -28,7 +28,7 @@ export default function PortalApp() {
   const items: NavItem[] = [
     { group: 'Portfolio' }, { to: '/portal', label: 'Overview', icon: 'home' }, { to: '/portal/investments', label: 'My Investments', icon: 'invest' },
     { to: '/portal/returns', label: 'ROI Released', icon: 'roi' },
-    ...(profile?.can_introduce ? [{ to: '/portal/network', label: 'My Investors', icon: 'users' } as NavItem] : []),
+    { to: '/portal/network', label: 'My People', icon: 'users' },
     { to: '/portal/properties', label: 'Explore Properties', icon: 'building' },
     { to: '/portal/announcements', label: 'Announcements', icon: 'announce', count: counts.data?.announcements },
     { group: 'Account' }, { to: '/portal/profile', label: 'Profile & Security', icon: 'user' }
@@ -36,7 +36,7 @@ export default function PortalApp() {
   return (
     <>
     <Routes>
-      <Route element={<Shell base="/portal" roleLabel="Investor portal" nav={items} searchPh="Search my investments and transactions" onSearch={q => nav('/portal/transactions?q=' + encodeURIComponent(q))} />}>
+      <Route element={<Shell base="/portal" roleLabel="IB portal" nav={items} searchPh="Search my transactions" onSearch={q => nav('/portal/transactions?q=' + encodeURIComponent(q))} />}>
         <Route index element={<Overview />} />
         <Route path="investments" element={<Investments />} />
         <Route path="investments/:code" element={<InvestmentDetail />} />

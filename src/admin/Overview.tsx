@@ -104,16 +104,16 @@ export function Overview() {
 
   if (q.error) return <>{head}<ErrorNote msg={q.error} retry={q.reload} /></>;
   if (!q.data) return <>{head}<Loading rows={6} /></>;
-  const { dash: d, planCount, pendRows, kycRows, names } = q.data;
+  const { dash: d, pendRows, kycRows, names } = q.data;
 
   /* ---------- first-run setup ---------- */
   const steps: { done: boolean; title: string; sub: string; to: string; cta: string }[] = [
     { done: !!s.company_name.trim(), title: 'Add company details', sub: 'Company name, logo, colours and support contacts shown to investors.', to: '/admin/settings', cta: 'Open settings' },
     { done: !!s.company_name.trim() && !!(s.default_terms.trim() || s.default_risk_disclosure.trim()), title: 'Confirm currency and default terms', sub: `Currency is ${s.currency}. Add the default terms and risk disclosure used on new plans.`, to: '/admin/settings?tab=terms', cta: 'Set terms' },
-    { done: planCount > 0, title: 'Create your first plan', sub: 'Set the monthly rate, investment range and lock-in options.', to: '/admin/plans?new=1', cta: 'Create plan' },
-    { done: d.registered_investors > 0, title: 'Add your first investor', sub: 'Invite an investor by email or set a temporary password.', to: '/admin/investors?new=1', cta: 'Add investor' }
+    { done: d.registered_investors > 0, title: 'Create your first IB', sub: 'IBs sign in with their phone number and see the people you put under them.', to: '/admin/ibs', cta: 'Open IBs' },
+    { done: d.registered_investors > 0, title: 'Record the first investment', sub: 'Name, phone, ROI, IB bonus, lock-in, principal and start date.', to: '/admin/investments?new=1', cta: 'Record investment' }
   ];
-  const showSetup = !s.company_name.trim() || planCount === 0;
+  const showSetup = !s.company_name.trim() || d.registered_investors === 0;
   const doneCount = steps.filter(x => x.done).length;
 
   /* ---------- pending actions from real data ---------- */
@@ -201,12 +201,12 @@ export function Overview() {
             <p className="hint" style={{ marginTop: 8 }}>Click a bar to open that branch.</p>
           </div>
         </div>
-        <div className="card"><div className="card-h"><h3>Investors by ROI plan</h3></div><div className="card-b">
+        <div className="card"><div className="card-h"><h3>Investors by monthly ROI</h3></div><div className="card-b">
           {rates.length
             ? <Donut parts={rates.map((r, i) => ({ name: `${rateShort(r.rate)} monthly`, value: Number(r.investors), color: rateColor(r.rate, i), sub: moneyShort(r.principal) }))}
                 fmt={v => `${v} investor${v === 1 ? '' : 's'}`} center1="Investors" center2={String(d.investors_with_investments)} label="Investors across the ROI plans"
                 onPart={ix => nav('/admin/investments?rate=' + rates[ix].rate + branchCode)} />
-            : <Empty title="No live investments yet">{planCount ? 'The split by plan appears once deposits are confirmed.' : <><span>Create the 2%, 3.3%, 4%, 5% and 6% plans to get started.</span><Link to="/admin/plans">Plans</Link></>}</Empty>}
+            : <Empty title="No live investments yet">'The split by ROI appears once investments are recorded.'</Empty>}
           <p className="hint" style={{ marginTop: 8 }}>Click a plan to see its investments. An investor with investments at two rates counts under both.</p>
         </div></div>
         <div className="card"><div className="card-h"><h3>Locked vs unlocked principal</h3>
@@ -259,7 +259,7 @@ export function Overview() {
         <div className="card"><div className="card-h"><h3>Principal by plan</h3></div><div className="card-b">
           {byPlan.length && byPlan.some(p => p.value > 0)
             ? <Donut parts={byPlan} fmt={moneyShort} center1="Total" center2={moneyShort(d.principal_invested)} label="Principal by plan" />
-            : <Empty title="No live principal yet">{planCount ? 'Principal appears here once a deposit is confirmed.' : <><span>Create a plan to get started.</span><Link to="/admin/plans?new=1">New plan</Link></>}</Empty>}
+            : <Empty title="No live principal yet">'Principal appears here once an investment is recorded.'</Empty>}
         </div></div>
         <div className="card"><div className="card-h"><h3>6-month and 1-year lock-ins</h3></div><div className="card-b" style={{ display: 'grid', gap: 14 }}>
           {lock.length ? lock.map(l => {

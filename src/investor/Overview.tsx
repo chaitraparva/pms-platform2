@@ -65,9 +65,12 @@ export function Overview() {
         actions={<button className="btn" onClick={() => nav('/portal/statement')}><Icon name="download" />Account statement</button>} />
 
       {!inv.length ? (
-        <div className="card"><div className="card-b">
-          <Empty title="You have no investments yet">Your advisor will record your investment once funds are received. You will be notified here as soon as it is active.</Empty>
-        </div></div>
+        <>
+          <div className="card"><div className="card-b">
+            <Empty title="No investment of your own">Your own investments appear here when the company records them. The people under you are below.</Empty>
+          </div></div>
+          <MyNetwork />
+        </>
       ) : (
         <>
           <ParvaBanner items={props} siteUrl={siteUrl} unlocked={unlocked} />
