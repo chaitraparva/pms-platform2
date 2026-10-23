@@ -32,12 +32,12 @@ export function MyNetwork({ page = false }: { page?: boolean }) {
   const [open, setOpen] = useState<string | null>(null);
   const [allBonus, setAllBonus] = useState(false);
 
-  const head = page ? <PageHead crumbs={['My people']} title="People under you" sub="Their investments and the IB bonus you earn from them. Everything here is entered by the company." /> : null;
+  const head = page ? <PageHead crumbs={['My people']} title="People under you" sub="Their investments and the bonus you earn from them. Everything here is entered by the company." /> : null;
   if (q.error) return page ? <>{head}<ErrorNote msg={q.error} retry={q.reload} /></> : null;
   if (!q.data) return page ? <>{head}<Loading /></> : null;
   const d: Network = q.data;
   if (!d.can_introduce && !d.investors.length) {
-    return page ? <>{head}<div className="card"><div className="card-b"><Empty title="Nobody under you yet">When the company records an investment for someone under you, they appear here with your IB bonus.</Empty></div></div></> : null;
+    return page ? <>{head}<div className="card"><div className="card-b"><Empty title="Nobody under you yet">When the company records an investment for someone under you, they appear here with your bonus.</Empty></div></div></> : null;
   }
 
   const allInv = d.investors.flatMap(p => p.investments);
@@ -47,10 +47,10 @@ export function MyNetwork({ page = false }: { page?: boolean }) {
 
   return (
     <>
-      {page ? <PageHead crumbs={['My people']} title="People under you" sub="Their investments and the IB bonus you earn from them. Everything here is entered by the company."  /> : (
+      {page ? <PageHead crumbs={['My people']} title="People under you" sub="Their investments and the bonus you earn from them. Everything here is entered by the company."  /> : (
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 8 }}>
           <div style={{ flex: 1, minWidth: 220 }}><h2 style={{ margin: 0, fontSize: 20 }}>People under you</h2>
-            <p className="hint" style={{ marginTop: 4 }}>Their investments and the IB bonus you earn from them. Added by the company.</p></div>
+            <p className="hint" style={{ marginTop: 4 }}>Their investments and the bonus you earn from them. Added by the company.</p></div>
         </div>
       )}
 
@@ -100,11 +100,11 @@ export function MyNetwork({ page = false }: { page?: boolean }) {
               </Fragment>
             ))}</tbody>
           </table></div>
-        ) : <div className="card-b"><Empty title="Nobody under you yet">When the company records an investment for someone under you, they appear here with your IB bonus.</Empty></div>}
+        ) : <div className="card-b"><Empty title="Nobody under you yet">When the company records an investment for someone under you, they appear here with your bonus.</Empty></div>}
       </div>
 
       <div className="card">
-        <div className="card-h"><h3>My IB bonus</h3><div className="r">{d.bonuses.length > 8 && <a style={{ cursor: 'pointer' }} onClick={() => setAllBonus(!allBonus)}>{allBonus ? 'Show latest' : `Show all ${d.bonuses.length}`}</a>}</div></div>
+        <div className="card-h"><h3>My bonus from the people under me</h3><div className="r">{d.bonuses.length > 8 && <a style={{ cursor: 'pointer' }} onClick={() => setAllBonus(!allBonus)}>{allBonus ? 'Show latest' : `Show all ${d.bonuses.length}`}</a>}</div></div>
         {d.bonuses.length ? (
           <div className="tbl"><table>
             <thead><tr><th>Month</th><th>From</th><th>Investment</th><th>Rate</th><th className="n">Amount</th><th>Status</th></tr></thead>

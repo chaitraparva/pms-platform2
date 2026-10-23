@@ -23,6 +23,8 @@ export interface Profile {
   introduced_by?: string | null;
   /** Investors only: the Super Admin allowed this investor to add investors (they get the bonus on those investors). */
   can_introduce?: boolean;
+  /** Investors: has a login (phone number + password). */
+  has_login?: boolean;
 }
 
 export interface Branch { id: string; code: string; name: string; city: string; status: 'active' | 'inactive'; created_at: string; updated_at: string }
@@ -127,3 +129,14 @@ export interface Dashboard {
   by_plan: { plan_id: string; plan: string; code: string; rate: number; status: string; investors: number; principal: number; count: number }[];
   by_lockin: { months: number; count: number; principal: number; unlocked: number }[];
 }
+
+/** A withdrawal: taken from the investor's highest monthly ROI first; returns use the lower principal from the request date. */
+export interface WithdrawalPart { investment_id: string; code: string; rate: number; plan_rate: number; amount: number; before: number; after: number }
+export interface Withdrawal {
+  id: string; code: string; investor_id: string; amount: number; method: 'cash' | 'bank'; note: string; status: 'pending' | 'completed' | 'cancelled';
+  requested_on: string; requested_at: string; requested_by: string | null; allocations: WithdrawalPart[];
+  completed_on: string | null; completed_by: string | null; payment_ref: string | null; admin_note: string | null; cancelled_reason: string | null; updated_at: string;
+}
+/** A question from an investor, answered by the Super Admin. */
+export interface QueryMessage { from: 'investor' | 'admin'; by: string; text: string; at: string }
+export interface Query { id: string; code: string; investor_id: string; subject: string; status: 'open' | 'answered' | 'closed'; created_at: string; updated_at: string; messages: QueryMessage[] }

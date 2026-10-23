@@ -6,7 +6,7 @@ import { Logo } from '../shell/Shell';
 import { ADMIN_EMAIL, ADMIN_PASSWORD, IB_PHONE, IB_PASSWORD } from '../lib/localdb';
 
 /** Sign-in details filled in when a role is chosen. */
-/** IB accounts are stored with the investor role (they also hold their own investments); they sign in with their phone number. */
+/** Investors sign in with the phone number the Super Admin recorded. */
 const DEMO = { super_admin: [ADMIN_EMAIL, ADMIN_PASSWORD], investor: [IB_PHONE, IB_PASSWORD] } as const;
 
 export function Login() {
@@ -33,7 +33,7 @@ export function Login() {
       const { data: p } = await api.from('profiles').select('role').eq('id', data.session.user.id).maybeSingle();
       if (p && p.role !== as) {
         await api.auth.signOut(); setBusy(false);
-        setMsg({ t: `This is ${p.role === 'super_admin' ? 'a Super Admin' : 'an IB'} account. Choose “${p.role === 'super_admin' ? 'Super Admin' : 'IB'}” above and sign in again.` });
+        setMsg({ t: `This is ${p.role === 'super_admin' ? 'a Super Admin' : 'an Investor'} account. Choose “${p.role === 'super_admin' ? 'Super Admin' : 'Investor'}” above and sign in again.` });
         return;
       }
     }
@@ -79,11 +79,11 @@ export function Login() {
       <section className="login-r">
         {mode === 'signin' && (
           <form className="login-box" onSubmit={signIn}>
-            <div><h2>Sign in</h2><p className="hint" style={{ fontSize: 13.5, marginTop: 4 }}>Super Admin signs in with email. IB signs in with the phone number the Super Admin registered.</p></div>
+            <div><h2>Sign in</h2><p className="hint" style={{ fontSize: 13.5, marginTop: 4 }}>Super Admin signs in with email. Investors sign in with their phone number.</p></div>
             <div className="role-pick" role="radiogroup" aria-label="I am a">
               {(['super_admin', 'investor'] as const).map(r => (
                 <button key={r} type="button" role="radio" aria-checked={as === r} className={'role ' + (as === r ? 'on' : '')} onClick={() => { setAs(r); setEmail(DEMO[r][0]); setPw(DEMO[r][1]); setMsg(null); }}>
-                  <b>{r === 'super_admin' ? 'Super Admin' : 'IB'}</b><span>{r === 'super_admin' ? 'Records investors, investments, IBs and payouts' : 'Your people, their investments and your bonus'}</span>
+                  <b>{r === 'super_admin' ? 'Super Admin' : 'Investor'}</b><span>{r === 'super_admin' ? 'Records investors, investments, withdrawals and payouts' : 'Your investments, returns, withdrawals and people under you'}</span>
                 </button>
               ))}
             </div>

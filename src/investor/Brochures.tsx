@@ -2,7 +2,8 @@
 // closes them (acknowledged in the database), and listed under Latest announcements.
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { rpc } from '../lib/api';
+import { api, rpc } from '../lib/api';
+import { useAuth } from '../lib/auth';
 import { refreshAll, useQuery } from '../lib/useQuery';
 import { brochureUrl, openBrochure } from '../lib/docs';
 import { date } from '../lib/format';
@@ -10,6 +11,8 @@ import { Modal, useAction } from '../ui/kit';
 import { Icon } from '../ui/Icon';
 import type { MyBrochure } from '../lib/types';
 import { ParvaWelcome } from './Properties';
+
+type AnnPop = { id: string; title: string; body: string; category: string; published_at: string | null };
 
 export const loadMyBrochures = () => rpc<MyBrochure[]>('my_brochures').then(r => r || []);
 
@@ -58,6 +61,19 @@ export function BrochureGate() {
   const [shown, setShown] = useState<MyBrochure | null>(null);
   const [autoDone, setAutoDone] = useState(false);
   const want = sp.get('brochure');
+  const { profile } = useAuth();
+  // announcements pop up once on the home page after sign-in, then stay in Notifications
+  const anns = useQuery(async () => {
+    const { data } = await api.from('notifications').select('*').eq('user_id', profile!.id).eq('kind', 'announcement').order('created_at', { ascending: false });
+    const list = ((data as { id: string; source_id: string | null; popped_at?: string | null }[]) || []).filter(n => !n.popped_at && n.source_id);
+    if (!list.length) return [];
+    const { data: rows } = await api.from('announcements').select('id,title,body,category,published_at').in('id', list.map(n => n.source_id));
+    const by = new Map(((rows as AnnPop[]) || []).map(r => [r.id, r]));
+    return list.map(n => ({ nid: n.id, a: by.get(n.source_id!) })).filter((x): x is { nid: string; a: AnnPop } => !!x.a);
+  }, [profile?.id]);
+  const [annIdx, setAnnIdx] = useState(0);
+  const nextAnn = (anns.data || [])[annIdx];
+  const closeAnn = () => { if (nextAnn) rpc('mark_popped', { p_id: nextAnn.nid }).catch(() => undefined); setAnnIdx(annIdx + 1); };
 
   useEffect(() => {
     if (!q.data) return;
@@ -82,5 +98,12 @@ export function BrochureGate() {
   const [parva, setParva] = useState(() => { try { return !sessionStorage.getItem('pms-parva-seen'); } catch { return true; } });
   const closeParva = () => { setParva(false); try { sessionStorage.setItem('pms-parva-seen', '1'); } catch { /* ignore */ } };
   if (shown) return <BrochureModal b={shown} onClose={() => setShown(null)} />;
+  if (nextAnn) return (
+    <Modal title={nextAnn.a.title} sub={`${nextAnn.a.category || 'Notice'}${nextAnn.a.published_at ? ' · ' + date(nextAnn.a.published_at) : ''}`} onClose={closeAnn}
+      foot={<button className="btn primary" onClick={closeAnn}>OK</button>}>
+      {nextAnn.a.body ? <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{nextAnn.a.body}</p> : null}
+      <p className="hint" style={{ marginTop: 10 }}>You can read this again under Notifications and Announcements.</p>
+    </Modal>
+  );
   return parva && q.data && autoDone ? <ParvaWelcome onClose={closeParva} /> : null;
 }

@@ -29,7 +29,7 @@ async function load() {
   return { rows, admins: people.filter(p => p.role === 'super_admin' || (p.role === 'investor' && (p.can_introduce || all_ids.has(p.id)))) };
 }
 
-/** IB bonus: part of the monthly rate goes to the IB (a Super Admin or an investor). Super Admins only. */
+/** Bonus: part of the monthly rate goes to the investor this person is under. Super Admins only. */
 export function Bonuses() {
   const q = useQuery(load, []);
   const { busy, run } = useAction();
@@ -52,7 +52,7 @@ export function Bonuses() {
     const m = new Map<string, { name: string; unpaid: number; paid: number; investors: Set<string> }>();
     all.filter(r => r.status !== 'cancelled').forEach(r => {
       const k = r.admin_id || 'none';
-      const x = m.get(k) || { name: r.admin_id ? nameOf(r.admin) : 'No IB', unpaid: 0, paid: 0, investors: new Set<string>() };
+      const x = m.get(k) || { name: r.admin_id ? nameOf(r.admin) : 'Individual', unpaid: 0, paid: 0, investors: new Set<string>() };
       if (r.status === 'paid') x.paid += Number(r.amount); else x.unpaid += Number(r.amount);
       x.investors.add(r.investor_id); m.set(k, x);
     });
@@ -74,7 +74,7 @@ export function Bonuses() {
 
   const cols: Col<Row>[] = [
     { h: 'Bonus', m: true, v: r => r.code },
-    { h: 'Admin', v: r => r.admin_id ? nameOf(r.admin) : '', r: r => r.admin_id ? <>{nameOf(r.admin)}<span className="sub">{r.admin?.code}</span></> : <span className="muted">No IB</span> },
+    { h: 'Paid to', v: r => r.admin_id ? nameOf(r.admin) : '', r: r => r.admin_id ? <>{nameOf(r.admin)}<span className="sub">{r.admin?.code}</span></> : <span className="muted">—</span> },
     { h: 'Investor', v: r => nameOf(r.investor), r: r => r.investor?.code ? <><Link to={`/admin/investors/${r.investor.code}`}>{nameOf(r.investor)}</Link><span className="sub">{r.investor.code}</span></> : nameOf(r.investor) },
     { h: 'Investment', v: r => r.inv?.code, r: r => r.inv ? <><Link className="mono" to={`/admin/investments/${r.inv.code}`}>{r.inv.code}</Link><span className="sub">{money(r.inv.principal)} · {r.inv.plan_name}</span></> : '—' },
     { h: 'Period', v: r => r.period_no, r: r => '#' + r.period_no },
@@ -87,8 +87,8 @@ export function Bonuses() {
 
   return (
     <>
-      <PageHead crumbs={['IB bonus']} title="IB bonus"
-        sub={<>Part of each plan’s monthly rate goes to the IB the investor is under. You type the IB bonus % when you record each investment. The total paid out is the same as the plan rate. Investors only ever see their own share.</>}
+      <PageHead crumbs={['Bonus']} title="Bonus"
+        sub={<>Part of each investment’s monthly ROI goes to the investor the person is under. You type the bonus % when you record each investment. The total paid out is the same as the plan rate. Investors only ever see their own share.</>}
         actions={<IconBtn icon="download" onClick={exportCsv} disabled={!rows.length}>Export CSV</IconBtn>} />
       {q.error && <ErrorNote msg={q.error} retry={q.reload} />}
       {!q.data && !q.error ? <Loading /> : q.data && (
@@ -97,12 +97,12 @@ export function Bonuses() {
             <Kpi label="Unpaid bonus" value={money(sum(mine.filter(r => r.status === 'accrued')))} sub={`${count('accrued')} month${count('accrued') === 1 ? '' : 's'}`} />
             <Kpi label="Paid bonus" cls="pos" value={money(sum(mine.filter(r => r.status === 'paid')))} sub={`${count('paid')} month${count('paid') === 1 ? '' : 's'}`} />
             <Kpi label="People earning" value={perAdmin.filter(a => a.id !== 'none').length} sub="with at least one bonus" />
-            <Kpi label="No IB" value={money(perAdmin.find(a => a.id === 'none')?.unpaid || 0)} sub='Choose “Under IB” on the person' subCls={perAdmin.some(a => a.id === 'none' && a.unpaid) ? 'warn' : ''} />
+            <Kpi label="Nobody set" value={money(perAdmin.find(a => a.id === 'none')?.unpaid || 0)} sub='Choose “Under” on the person’s page' subCls={perAdmin.some(a => a.id === 'none' && a.unpaid) ? 'warn' : ''} />
           </div>
           {perAdmin.length > 0 && (
             <div className="card">
-              <div className="card-h"><h3>By IB</h3></div>
-              <div className="tbl"><table><thead><tr><th>IB</th><th className="n">Investors</th><th className="n">Unpaid</th><th className="n">Paid</th><th className="n">Total</th></tr></thead>
+              <div className="card-h"><h3>By investor</h3></div>
+              <div className="tbl"><table><thead><tr><th>Paid to</th><th className="n">People</th><th className="n">Unpaid</th><th className="n">Paid</th><th className="n">Total</th></tr></thead>
                   <tbody>{perAdmin.map(a => (
                     <tr key={a.id} style={{ cursor: 'pointer' }} onClick={() => { setAdmin(a.id === admin ? '' : a.id); setSel(new Set()); }}>
                       <td>{a.id === 'none' ? <span className="muted">{a.name}</span> : <b>{a.name}</b>}{admin === a.id && <span className="sub">Filtered</span>}</td>
@@ -123,7 +123,7 @@ export function Bonuses() {
                 <select className="input" style={{ width: 'auto' }} value={admin} onChange={e => { setAdmin(e.target.value); setSel(new Set()); }}>
                   <option value="">Everyone</option>
                   {q.data.admins.map(a => <option key={a.id} value={a.id}>{nameOf(a)}</option>)}
-                  <option value="none">No IB</option>
+                  <option value="none">Nobody set</option>
                 </select>
                 {tab === 'accrued' && <span className="muted" style={{ alignSelf: 'center', fontSize: 13 }}>{chosen.length ? `${chosen.length} selected · ${money(sum(chosen))}` : 'None selected'}</span>}
                 {tab === 'accrued' && <button className="btn primary sm" disabled={!chosen.length} onClick={() => { setPaying(true); setRef(''); setErr(null); }}>Mark paid</button>}
@@ -134,7 +134,7 @@ export function Bonuses() {
         </>
       )}
       {paying && (
-        <Modal title={`Mark ${chosen.length} bonus${chosen.length === 1 ? '' : 'es'} as paid?`} sub="Only confirm after the transfer to the IB has gone through." onClose={() => setPaying(false)}
+        <Modal title={`Mark ${chosen.length} bonus${chosen.length === 1 ? '' : 'es'} as paid?`} sub="Only confirm after the transfer has gone through." onClose={() => setPaying(false)}
           foot={<><button className="btn ghost" onClick={() => setPaying(false)}>Cancel</button><button className="btn primary" onClick={pay} disabled={busy}>{busy ? 'Saving…' : 'Mark paid'}</button></>}>
           <div className="form">
             <dl className="kv">

@@ -1,5 +1,5 @@
 import { friendly } from './api';
-import { adminResetPassword, createAccount, createIB, ready } from './localdb';
+import { adminResetPassword, adminRecordInvestment, createAccount, createIB, ready } from './localdb';
 
 export interface NewUser {
   email: string;
@@ -36,4 +36,10 @@ export interface NewIB { full_name?: string; phone: string; password: string; em
 export async function createIbLogin(u: NewIB): Promise<{ id: string; code: string }> {
   await ready();
   try { return await createIB({ ...u }); } catch (e) { throw new Error(friendly((e as Error).message)); }
+}
+
+/** Record investment: finds the person by phone (or adds them with a login) and records the investment. */
+export async function recordInvestmentFull(a: Record<string, unknown>): Promise<{ id: string; code: string; investor: string }> {
+  await ready();
+  try { return await adminRecordInvestment({ ...a }); } catch (e) { throw new Error(friendly((e as Error).message)); }
 }

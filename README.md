@@ -10,22 +10,23 @@ This version needs no backend, database service or keys. Everything runs in the 
 
 ## Sign in
 
-There are two logins. Choose **Super Admin** or **IB** on the sign-in page.
+There are two logins. Choose **Super Admin** or **Investor** on the sign-in page. Investors sign in with their phone number.
 
 | Role | Signs in with | Password |
 |------|---------------|----------|
 | Super Admin | chaitra@parvarealty.ae | Parva@2026 |
-| IB (sample) | 98450 10000 (Ananya Rao) | IB@Parva2026 |
-| IB (sample) | 99860 20000 (Ravi Kumar) | IB@Parva2026 |
-| IB (sample) | 99860 24111 (Priya Sharma) | IB@Parva2026 |
+| Investor (sample) | 98450 10000 (Ananya Rao, has people under her) | Investor@2026 |
+| Investor (sample) | 98450 11373 (Rahul Menon, under Ananya) | Investor@2026 |
+
+Every sample investor uses the password Investor@2026 with their own phone number.
 
 ## How it works
 
-- **Super Admin enters everything.** There is no investor login.
-- **IBs** page → **Create IB**: name, phone number (the IB's login) and password. A person already on file can also be given an IB login from their page.
-- **Record investment**: phone number, name, **Under IB** (or no IB), **monthly ROI %** (any rate, e.g. 0.25, 2.3, 4.3, 6), **IB bonus %** (taken out of the ROI: 6% with a 2% bonus = 4% to the investor + 2% to the IB), lock-in (no lock-in, 6, 12 or custom months), principal (INR) and start date. The person is found by phone number or added if new. Recording with an IB's own phone number records the IB's own investment.
-- **IB login** (view only): their own investments and returns, the people under them with each person's investment, and the IB bonus they earn from each. An IB cannot add or change anything.
-- The Super Admin pays the IB bonus from **IB Bonus** and investors' returns from **Payouts**.
+- **Super Admin enters everything.** **Record investment**: phone number, name, **Individual** or **Under an investor** (any investor can be chosen), monthly ROI % (any rate), bonus % for the investor they are under (taken out of the ROI: 6% with a 2% bonus = 4% to the investor + 2% bonus), lock-in (none, 6, 12 or custom months), principal and start date. A new person gets their login (phone number + the password shown in the form).
+- **Investor login**: their own investments and returns, the people under them with each person's investment and the bonus they earn (shown as soon as the person is recorded), withdrawals, queries, announcements.
+- **Withdraw**: the investor applies for an amount (cash or bank transfer). It is taken automatically from their highest monthly ROI first, whatever the lock-in. From the request date, returns are calculated on the lower amount (the month in which it happens is split by days). It shows **Pending** until the Super Admin pays and clicks **Mark completed** under Withdrawals.
+- **Ask a query**: the investor writes, the Super Admin answers under Queries, the investor sees the answer and gets a notification.
+- **Announcements** pop up once on the investor's home page after sign-in and stay under Notifications and Announcements.
 
 ## Run and deploy
 

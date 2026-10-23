@@ -22,19 +22,27 @@ import { Search } from './Search';
 import { Ranking } from './Ranking';
 import { Bonuses } from './Bonuses';
 import { IBs } from './IBs';
+import { Withdrawals } from './Withdrawals';
+import { Queries } from './Queries';
 import { SubTabs } from '../ui/kit';
 
 export default function AdminApp() {
   const nav = useNavigate();
   const counts = useQuery(async () => {
-    const p = await api.from('payouts').select('id', { count: 'exact', head: true }).in('status', ['approved', 'processing', 'failed']);
-    return { payouts: p.count || 0 };
+    const [p, w, qy] = await Promise.all([
+      api.from('payouts').select('id', { count: 'exact', head: true }).in('status', ['approved', 'processing', 'failed']),
+      api.from('withdrawals').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+      api.from('queries').select('id', { count: 'exact', head: true }).eq('status', 'open')
+    ]);
+    return { payouts: p.count || 0, withdrawals: w.count || 0, queries: qy.count || 0 };
   }, []);
   const items: NavItem[] = [
     { group: 'Dashboard' }, { to: '/admin', label: 'Overview', icon: 'home', also: ['/admin/branches', '/admin/ranking'] },
     { group: 'Manage' }, { to: '/admin/investors', label: 'Investors', icon: 'users', count: counts.data?.payouts, also: ['/admin/investments', '/admin/payouts'] },
-    { to: '/admin/ibs', label: 'IBs', icon: 'users' },
-    { to: '/admin/bonuses', label: 'IB Bonus', icon: 'roi' },
+    { to: '/admin/ibs', label: 'Network', icon: 'users' },
+    { to: '/admin/bonuses', label: 'Bonus', icon: 'roi' },
+    { to: '/admin/withdrawals', label: 'Withdrawals', icon: 'payout', count: counts.data?.withdrawals },
+    { to: '/admin/queries', label: 'Queries', icon: 'announce', count: counts.data?.queries },
     { to: '/admin/announcements', label: 'Updates', icon: 'announce', also: ['/admin/brochures'] },
     { to: '/admin/properties', label: 'Parva Properties', icon: 'building' },
     { to: '/admin/settings', label: 'Settings', icon: 'settings' }
@@ -54,6 +62,8 @@ export default function AdminApp() {
         <Route path="accruals" element={<Accruals />} />
         <Route path="bonuses" element={<Bonuses />} />
         <Route path="ibs" element={<IBs />} />
+        <Route path="withdrawals" element={<Withdrawals />} />
+        <Route path="queries" element={<Queries />} />
         <Route path="payouts" element={<>{peopleTabs}<Payouts /></>} />
         <Route path="branches" element={<Branches />} />
         <Route path="ranking" element={<Ranking />} />

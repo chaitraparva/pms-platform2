@@ -5,6 +5,7 @@ import { useQuery, refreshAll } from '../lib/useQuery';
 import { useAuth, useSettings } from '../lib/auth';
 import { uploadDocument, openDocument, deleteDocument } from '../lib/docs';
 import { downloadCsv } from '../lib/csv';
+import { recordInvestmentFull } from '../lib/adminApi';
 import { money, date, dateShort, dateTime, rate, today, addMonths, daysBetween, investmentLabel, isUnlocked, lockinText, rateShort, LEDGER_TYPE } from '../lib/format';
 import type { Investment, Balance, Branch, Profile, Plan, Accrual, Payout, LedgerEntry } from '../lib/types';
 import { DataTable, Col } from '../ui/DataTable';
@@ -78,7 +79,7 @@ export function Investments() {
     { h: 'Investor', v: r => r.investor?.full_name || '', r: r => <>{r.investor?.full_name || '—'}<span className="sub">{r.investor?.code}{r.branch ? ' · ' + r.branch : ''}</span></> },
     { h: 'Plan', v: r => r.plan_name, r: r => <>{r.plan_name}{r.plan_id && <> <span className="muted mono">v{r.plan_version}</span></>}<span className="sub">{rate(r.monthly_rate)}</span></> },
     { h: 'Bonus to', v: r => r.bonusTo?.full_name || '', r: r => Number(r.admin_bonus || 0) > 0
-      ? (r.bonusTo ? <>{r.bonusTo.full_name || r.bonusTo.email}<span className="sub">{rate(r.admin_bonus_rate || 0)} · {money(r.admin_bonus)} / month</span></> : <span className="muted">No IB<span className="sub">{rate(r.admin_bonus_rate || 0)} unassigned</span></span>)
+      ? (r.bonusTo ? <>{r.bonusTo.full_name || r.bonusTo.email}<span className="sub">{rate(r.admin_bonus_rate || 0)} · {money(r.admin_bonus)} / month</span></> : <span className="muted">Individual<span className="sub">{rate(r.admin_bonus_rate || 0)} unassigned</span></span>)
       : <span className="muted">—</span> },
     { h: 'Principal', n: true, v: r => Number(r.principal), r: r => money(r.principal) },
     { h: 'Lock-in', v: r => r.lockin_months, r: r => lockinText(r.lockin_months) },
@@ -92,7 +93,7 @@ export function Investments() {
 
   const livePrincipal = rows.filter(r => LIVE.includes(r.status)).reduce((x, r) => x + Number(r.principal), 0);
   const exportCsv = () => downloadCsv(`investments-${today()}`,
-    ['Investment', 'Investor ID', 'Investor', 'Branch', 'Plan', 'Version', 'Rate %/month', 'Investor rate %', 'IB bonus %', 'IB bonus / month', 'Bonus to', 'Principal', 'Monthly return', 'Lock-in months', 'Start', 'Maturity', 'Accrued', 'Paid', 'Outstanding', 'Status', 'Agreement ref', 'Deposit ref'],
+    ['Investment', 'Investor ID', 'Investor', 'Branch', 'Plan', 'Version', 'Rate %/month', 'Investor rate %', 'Bonus %', 'Bonus / month', 'Bonus to', 'Principal', 'Monthly return', 'Lock-in months', 'Start', 'Maturity', 'Accrued', 'Paid', 'Outstanding', 'Status', 'Agreement ref', 'Deposit ref'],
     rows.map(r => [r.code, r.investor?.code, r.investor?.full_name, r.branch, r.plan_name, r.plan_version, r.monthly_rate, r.investor_rate ?? r.monthly_rate, r.admin_bonus_rate ?? 0, r.admin_bonus ?? 0, r.bonusTo ? r.bonusTo.full_name || r.bonusTo.email : '', r.principal, r.monthly_return, r.lockin_months, r.start_date, r.maturity_date,
       r.bal?.accrued ?? 0, r.bal?.paid ?? 0, r.outstanding, r.label, r.agreement_ref, r.deposit_ref]));
 
@@ -133,23 +134,26 @@ export function Investments() {
 }
 
 /* =============================== RECORD DRAWER =============================== */
-type Found = { id: string; code: string; full_name: string; phone: string; is_ib: boolean; ib_id: string | null; ib_name: string | null } | null;
+type Found = { id: string; code: string; full_name: string; phone: string; has_login: boolean; ib_id: string | null; ib_name: string | null; people: number } | null;
 const LOCKS: [string, string][] = [['0', 'No lock-in'], ['6', '6 months'], ['12', '12 months'], ['custom', 'Custom']];
+const genPw = () => { const c = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'; let s = ''; for (let i = 0; i < 6; i++) s += c[Math.floor(Math.random() * c.length)]; return 'Parva@' + s; };
 
-/** Super Admin records an investment in one step: who (by phone), which IB they are under, the ROI and IB bonus typed in, lock-in, principal and start date. */
+/** Super Admin records an investment in one step: who (by phone), individual or under another investor, the ROI and bonus typed in,
+ *  lock-in, principal and start date. A new person gets their login (phone number + password) at the same time. */
 function RecordInvestment({ preInvestor, onClose, onDone }: { preInvestor: string; onClose: () => void; onDone: (code: string) => void }) {
   const act = useAction();
   const t = today();
   const opts = useQuery(async () => {
-    const [ibs, pre] = await Promise.all([
-      fetchAll<Lite & { phone?: string }>((a, b) => api.from('profiles').select('id,full_name,code,email,phone,branch_id').eq('role', 'investor').eq('can_introduce', true).order('full_name').range(a, b)),
+    const [all, pre] = await Promise.all([
+      fetchAll<Lite & { phone?: string }>((a, b) => api.from('profiles').select('id,full_name,code,email,phone,branch_id').eq('role', 'investor').order('full_name').range(a, b)),
       preInvestor ? api.from('profiles').select('id,full_name,code,phone').eq('code', preInvestor).maybeSingle() : Promise.resolve({ data: null, error: null })
     ]);
-    return { ibs, pre: (pre.data as { full_name: string; phone: string } | null) || null };
+    return { all, pre: (pre.data as { full_name: string; phone: string } | null) || null };
   }, [preInvestor]);
 
   const [phone, setPhone] = useState('');
   const [name, setName] = useState('');
+  const [kind, setKind] = useState<'individual' | 'under'>('individual');
   const [ib, setIb] = useState('');
   const [roi, setRoi] = useState('');
   const [bonus, setBonus] = useState('');
@@ -157,73 +161,99 @@ function RecordInvestment({ preInvestor, onClose, onDone }: { preInvestor: strin
   const [customLock, setCustomLock] = useState('');
   const [amount, setAmount] = useState('');
   const [start, setStart] = useState(t);
+  const [pw, setPw] = useState(genPw);
   const [ref, setRef] = useState('');
   const [notes, setNotes] = useState('');
   const [found, setFound] = useState<Found>(null);
   const [tried, setTried] = useState(false);
+  const [done, setDone] = useState<null | { code: string; phone: string; pw: string | null }>(null);
 
   useEffect(() => { if (opts.data?.pre && !phone) { setPhone(opts.data.pre.phone || ''); setName(opts.data.pre.full_name || ''); } }, [opts.data]); // eslint-disable-line react-hooks/exhaustive-deps
-  // look the phone number up as it is typed: an existing person keeps their record (and IB); an IB's own number records the IB's own investment
+  // look the phone number up as it is typed: an existing person keeps their record, login and the investor they are under
   const digits = phone.replace(/\D/g, '').slice(-10);
   useEffect(() => {
     if (digits.length !== 10) { setFound(null); return; }
     let live = true;
-    rpc<Found>('admin_lookup_phone', { p_phone: digits }).then(r => { if (!live) return; setFound(r); if (r) { setName(r.full_name); if (r.ib_id) setIb(r.ib_id); if (r.is_ib) setIb(''); } }).catch(() => {});
+    rpc<Found>('admin_lookup_phone', { p_phone: digits }).then(r => { if (!live) return; setFound(r); if (r) { setName(r.full_name); if (r.ib_id) { setKind('under'); setIb(r.ib_id); } } }).catch(() => {});
     return () => { live = false; };
   }, [digits]);
 
+  const under = kind === 'under';
   const months = lock === 'custom' ? Number(customLock) : Number(lock);
-  const r = Number(roi), b = ib ? Number(bonus || 0) : 0, amt = Number(amount);
-  const ibRow = opts.data?.ibs.find(x => x.id === ib);
+  const r = Number(roi), b = under && ib ? Number(bonus || 0) : 0, amt = Number(amount);
+  const upRow = opts.data?.all.find(x => x.id === ib);
+  const needPw = !found || !found.has_login;
   const errs: Record<string, string | null> = {
     phone: digits.length !== 10 ? 'Enter a 10-digit phone number.' : null,
     name: !name.trim() ? 'Enter the name.' : null,
-    ib: found && found.ib_id && ib && found.ib_id !== ib ? `${found.full_name} is already under ${found.ib_name}.` : null,
+    ib: under && !ib ? 'Choose the investor this person is under.' : found && found.ib_id && under && ib && found.ib_id !== ib ? `${found.full_name} is already under ${found.ib_name}.` : null,
     roi: !(r > 0 && r <= 100) || !/^\d+(\.\d{1,4})?$/.test(roi.trim()) ? 'Enter the monthly ROI, e.g. 0.25, 2.3, 4.3 or 6.' : null,
-    bonus: ib && (!/^\d+(\.\d{1,4})?$/.test((bonus || '0').trim()) || (r > 0 && b >= r)) ? 'The IB bonus must be 0 or more and less than the ROI.' : null,
+    bonus: under && (!/^\d+(\.\d{1,4})?$/.test((bonus || '0').trim()) || (r > 0 && b >= r)) ? 'The bonus must be 0 or more and less than the ROI.' : null,
     lock: !(Number.isInteger(months) && months >= 0 && months <= 120) ? 'Enter the lock-in in months (0 to 120).' : null,
     amount: !(amt > 0) || !/^\d+(\.\d{1,2})?$/.test(amount.trim()) ? 'Enter the principal (at most 2 decimals).' : null,
-    start: !start ? 'Enter the start date.' : null
+    start: !start ? 'Enter the start date.' : null,
+    pw: needPw && pw.length < 8 ? 'At least 8 characters.' : null
   };
   const bad = Object.values(errs).some(Boolean);
   const e = (k: string) => (tried ? errs[k] : null);
   const invRate = r > 0 && b < r ? Math.round((r - b) * 10000) / 10000 : 0;
   const mine = amt > 0 && invRate ? Math.round(amt * invRate) / 100 : 0;
-  const ibMonthly = amt > 0 && b > 0 ? Math.round(amt * r) / 100 - mine : 0;
+  const upMonthly = amt > 0 && b > 0 ? Math.round((Math.round(amt * r) / 100 - mine) * 100) / 100 : 0;
 
   const save = async () => {
     setTried(true);
     if (bad) return;
-    const res = await act.run(() => rpc<{ code: string }>('admin_record_direct', {
-      p_name: name.trim(), p_phone: phone.trim(), p_ib: ib || null, p_rate: roi.trim(), p_bonus: ib ? (bonus.trim() || '0') : '0', p_lockin_months: months,
-      p_principal: amt, p_start_date: start, p_reference: ref.trim(), p_notes: notes.trim()
+    const res = await act.run(() => recordInvestmentFull({
+      p_name: name.trim(), p_phone: phone.trim(), p_ib: under ? ib : null, p_rate: roi.trim(), p_bonus: under ? (bonus.trim() || '0') : '0', p_lockin_months: months,
+      p_principal: amt, p_start_date: start, p_reference: ref.trim(), p_notes: notes.trim(), p_password: needPw ? pw : ''
     }), ['Investment recorded', `${name.trim()} · ${money(amt)} at ${rateShort(r)} a month`]);
-    if (res) { refreshAll(); onDone(res.code); }
+    if (res) { refreshAll(); setDone({ code: res.code, phone: phone.trim(), pw: needPw ? pw : null }); }
   };
 
+  if (done) return (
+    <Drawer title="Investment recorded" sub={done.pw ? 'Share the login details with the investor offline.' : 'Added to the investor’s account.'} onClose={() => onDone(done.code)}
+      foot={<button className="btn primary" onClick={() => onDone(done.code)}>Open investment</button>}>
+      <div className="form">
+        <dl className="kv">
+          <dt>Investor</dt><dd>{name}</dd>
+          <dt>Investment</dt><dd className="mono">{done.code} · {money(amt)} at {rateShort(r)}</dd>
+          {under && upRow && <><dt>Under</dt><dd>{upRow.full_name} · bonus {rateShort(b)} ({money(upMonthly)} / month), shown to them now</dd></>}
+          {done.pw && <><dt>Login (phone)</dt><dd className="mono">{done.phone}</dd><dt>Password</dt><dd className="mono">{done.pw}</dd></>}
+        </dl>
+      </div>
+    </Drawer>
+  );
+
   return (
-    <Drawer title="Record investment" sub="Enter everything here. The person is found by phone number, or added if new." onClose={onClose}
+    <Drawer title="Record investment" sub="The person is found by phone number, or added with their own login." onClose={onClose}
       foot={<><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" onClick={save} disabled={act.busy || !opts.data}>{act.busy ? 'Saving…' : 'Record investment'}</button></>}>
       {opts.error ? <ErrorNote msg={opts.error} retry={opts.reload} /> : !opts.data ? <Loading rows={3} /> : (
         <div className="form">
           <div className="f-row">
-            <Field label="Phone number *" err={e('phone')} hint={found ? (found.is_ib ? <>This is IB <b>{found.full_name}</b>: it will be their own investment.</> : <>Existing person: <b>{found.full_name}</b> ({found.code}){found.ib_name ? ` · under ${found.ib_name}` : ''}</>) : 'An IB signs in with this number.'}>
+            <Field label="Phone number *" err={e('phone')} hint={found ? <>Existing investor: <b>{found.full_name}</b> ({found.code}){found.ib_name ? ` · under ${found.ib_name}` : ' · individual'}</> : 'The investor signs in with this number.'}>
               <input className={'input num ' + (e('phone') ? 'bad' : '')} inputMode="tel" value={phone} onChange={ev => setPhone(ev.target.value)} placeholder="e.g. 98450 12345" />
             </Field>
             <Field label="Name *" err={e('name')}><input className={'input ' + (e('name') ? 'bad' : '')} value={name} onChange={ev => setName(ev.target.value)} disabled={!!found} /></Field>
           </div>
-          <Field label="Under IB" err={e('ib')} hint={found?.is_ib ? 'An IB’s own investment has no IB bonus.' : 'The IB earns the bonus below on this investment. Choose “No IB” if nobody brought them in.'}>
-            <select className={'input ' + (e('ib') ? 'bad' : '')} value={ib} onChange={ev => setIb(ev.target.value)} disabled={!!found?.is_ib || !!found?.ib_id}>
-              <option value="">No IB</option>
-              {opts.data.ibs.filter(x => x.id !== found?.id).map(x => <option key={x.id} value={x.id}>{x.full_name} · {x.code}{x.phone ? ' · ' + x.phone : ''}</option>)}
-            </select>
+          <Field label="Investor type *" err={e('ib')}>
+            <div className="chips">
+              <button type="button" className={'chip ' + (!under ? 'on' : '')} disabled={!!found?.ib_id} onClick={() => { setKind('individual'); setIb(''); }}>Individual</button>
+              <button type="button" className={'chip ' + (under ? 'on' : '')} onClick={() => setKind('under')}>Under an investor</button>
+            </div>
+            {under && (
+              <select className={'input ' + (e('ib') ? 'bad' : '')} style={{ marginTop: 8 }} value={ib} onChange={ev => setIb(ev.target.value)} disabled={!!found?.ib_id}>
+                <option value="">Choose the investor…</option>
+                {opts.data.all.filter(x => x.id !== found?.id).map(x => <option key={x.id} value={x.id}>{x.full_name} · {x.code}{x.phone ? ' · ' + x.phone : ''}</option>)}
+              </select>
+            )}
+            <p className="hint">{under ? 'The person goes under this investor. That investor sees them and earns the bonus below from now on.' : 'Nobody earns a bonus on this investment.'}</p>
           </Field>
           <div className="f-row">
             <Field label="Monthly ROI (% per month) *" err={e('roi')} hint="Any rate, e.g. 0.25, 2.3, 3.3, 4.3, 6.">
               <input className={'input num ' + (e('roi') ? 'bad' : '')} inputMode="decimal" value={roi} onChange={ev => setRoi(ev.target.value)} placeholder="e.g. 6" />
             </Field>
-            <Field label="IB bonus (% per month)" err={e('bonus')} hint={ib ? (r > 0 && b < r ? `Investor gets ${invRate}%, ${ibRow?.full_name || 'the IB'} gets ${b}%.` : 'Taken out of the ROI.') : 'Only when the person is under an IB.'}>
-              <input className={'input num ' + (e('bonus') ? 'bad' : '')} inputMode="decimal" value={ib ? bonus : ''} onChange={ev => setBonus(ev.target.value)} disabled={!ib} placeholder={ib ? 'e.g. 2' : '—'} />
+            <Field label={under && upRow ? `Bonus to ${upRow.full_name} (% per month)` : 'Bonus (% per month)'} err={e('bonus')} hint={under ? (r > 0 && b < r ? `Investor gets ${invRate}%${upRow ? `, ${upRow.full_name} gets ${b}%` : ''}.` : 'Taken out of the ROI.') : 'Only when under an investor.'}>
+              <input className={'input num ' + (e('bonus') ? 'bad' : '')} inputMode="decimal" value={under ? bonus : ''} onChange={ev => setBonus(ev.target.value)} disabled={!under} placeholder={under ? 'e.g. 2' : '—'} />
             </Field>
           </div>
           <Field label="Lock-in period *" err={e('lock')}>
@@ -236,6 +266,11 @@ function RecordInvestment({ preInvestor, onClose, onDone }: { preInvestor: strin
             <Field label="Principal (INR) *" err={e('amount')}><input className={'input num ' + (e('amount') ? 'bad' : '')} inputMode="decimal" value={amount} onChange={ev => setAmount(ev.target.value)} placeholder="e.g. 500000" /></Field>
             <Field label="Start date *" err={e('start')} hint="Returns accrue monthly from this date."><input className="input" type="date" value={start} onChange={ev => setStart(ev.target.value)} /></Field>
           </div>
+          {needPw && (
+            <Field label="Login password *" err={e('pw')} hint={`They sign in as Investor with ${digits.length === 10 ? phone : 'this phone number'} and this password. Share it offline.`}>
+              <input className={'input mono ' + (e('pw') ? 'bad' : '')} value={pw} onChange={ev => setPw(ev.target.value)} autoComplete="new-password" />
+            </Field>
+          )}
           <div className="f-row">
             <Field label="Reference" hint="Bank / UTR or agreement number (optional)."><input className="input mono" value={ref} onChange={ev => setRef(ev.target.value)} /></Field>
             <Field label="Notes (internal)"><input className="input" value={notes} onChange={ev => setNotes(ev.target.value)} /></Field>
@@ -246,7 +281,7 @@ function RecordInvestment({ preInvestor, onClose, onDone }: { preInvestor: strin
               <dl className="kv">
                 <dt>Monthly ROI</dt><dd>{r > 0 ? rate(r) : '—'}</dd>
                 <dt>Investor gets</dt><dd>{invRate ? <>{rate(invRate)}{amt > 0 && <> · <b>{money(mine)}</b> / month</>}</> : '—'}</dd>
-                <dt>IB bonus</dt><dd>{ib && b > 0 ? <>{rate(b)}{amt > 0 && <> · <b>{money(ibMonthly)}</b> / month</>} <span className="muted">to {ibRow?.full_name}</span></> : <span className="muted">None</span>}</dd>
+                <dt>Bonus</dt><dd>{under && b > 0 ? <>{rate(b)}{amt > 0 && <> · <b>{money(upMonthly)}</b> / month</>} <span className="muted">to {upRow?.full_name}</span></> : <span className="muted">None</span>}</dd>
                 <dt>First return</dt><dd>{start ? date(addMonths(start, 1)) : '—'}</dd>
                 <dt>Lock-in ends</dt><dd>{start && months > 0 ? date(addMonths(start, months)) : months === 0 ? 'No lock-in' : '—'}</dd>
               </dl>
@@ -358,7 +393,7 @@ export function InvestmentDetail() {
       <div className="kpis">
         <Kpi label="Principal" value={money(i.principal)} sub="Original, never changes" />
         <Kpi label="Investor monthly return" value={money(i.monthly_return)}
-          sub={Number(i.admin_bonus || 0) > 0 ? `${rate(i.investor_rate ?? i.monthly_rate)} · + ${money(i.admin_bonus)} (${rate(i.admin_bonus_rate || 0)}) to ${introducedBy ? nm(introducedBy) : 'no IB'}` : `${rate(i.monthly_rate)} × principal`} />
+          sub={Number(i.admin_bonus || 0) > 0 ? `${rate(i.investor_rate ?? i.monthly_rate)} · + ${money(i.admin_bonus)} (${rate(i.admin_bonus_rate || 0)}) to ${introducedBy ? nm(introducedBy) : 'nobody'}` : `${rate(i.monthly_rate)} × principal`} />
         <Kpi label="Accrued to date" value={money(bal?.accrued || 0)} sub={i.lockin_months ? `${bal?.periods_accrued || 0} of ${i.lockin_months} periods` : `${bal?.periods_accrued || 0} months so far`} tip="Sum of accrual entries, net of reversals." />
         <Kpi label="Paid (confirmed)" value={money(bal?.paid || 0)} cls="pos" sub={`${paidCount} payout${paidCount === 1 ? '' : 's'}`} />
         <Kpi label="Outstanding" value={money(outstanding)} sub={Number(bal?.processing || 0) ? `${money(bal!.processing)} processing` : 'Accrued, not yet paid'} subCls={outstanding ? 'warn' : ''} />
@@ -434,8 +469,8 @@ export function InvestmentDetail() {
               <dl className="kv">
                 <dt>Plan rate</dt><dd>{rate(i.monthly_rate)}</dd>
                 {Number(i.admin_bonus || 0) > 0 && <><dt>Investor ROI</dt><dd>{rate(i.investor_rate ?? i.monthly_rate)} <span className="muted">(shown to the investor)</span></dd>
-                  <dt>IB bonus</dt><dd>{rate(i.admin_bonus_rate || 0)} · {money(i.admin_bonus)} / month</dd>
-                  <dt>Bonus goes to</dt><dd>{introducedBy ? <b>{nm(introducedBy)}</b> : <span className="muted">No IB. Set “Introduced by” on the investor.</span>}</dd></>}
+                  <dt>Bonus</dt><dd>{rate(i.admin_bonus_rate || 0)} · {money(i.admin_bonus)} / month</dd>
+                  <dt>Bonus goes to</dt><dd>{introducedBy ? <b>{nm(introducedBy)}</b> : <span className="muted">Individual: no bonus.</span>}</dd></>}
                 <dt>Method</dt><dd>Simple interest</dd>
                 <dt>Plan</dt><dd>{plan ? <><Link to={'/admin/plans/' + plan.code}>{i.plan_name}</Link> · v{i.plan_version}</> : i.plan_name}</dd>
                 <dt>Lock-in</dt><dd>{lockinText(i.lockin_months)}</dd>

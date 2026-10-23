@@ -110,8 +110,7 @@ export function Overview() {
   const steps: { done: boolean; title: string; sub: string; to: string; cta: string }[] = [
     { done: !!s.company_name.trim(), title: 'Add company details', sub: 'Company name, logo, colours and support contacts shown to investors.', to: '/admin/settings', cta: 'Open settings' },
     { done: !!s.company_name.trim() && !!(s.default_terms.trim() || s.default_risk_disclosure.trim()), title: 'Confirm currency and default terms', sub: `Currency is ${s.currency}. Add the default terms and risk disclosure used on new plans.`, to: '/admin/settings?tab=terms', cta: 'Set terms' },
-    { done: d.registered_investors > 0, title: 'Create your first IB', sub: 'IBs sign in with their phone number and see the people you put under them.', to: '/admin/ibs', cta: 'Open IBs' },
-    { done: d.registered_investors > 0, title: 'Record the first investment', sub: 'Name, phone, ROI, IB bonus, lock-in, principal and start date.', to: '/admin/investments?new=1', cta: 'Record investment' }
+        { done: d.registered_investors > 0, title: 'Record the first investment', sub: 'Name, phone, individual or under an investor, ROI, bonus, lock-in, principal and start date. The investor gets their login.', to: '/admin/investments?new=1', cta: 'Record investment' }
   ];
   const showSetup = !s.company_name.trim() || d.registered_investors === 0;
   const doneCount = steps.filter(x => x.done).length;

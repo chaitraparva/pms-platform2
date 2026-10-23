@@ -16,6 +16,8 @@ import { Documents } from './Documents';
 import { Statement } from './Statement';
 import { Announcements } from './Announcements';
 import { MyNetwork } from './Network';
+import { Withdraw } from './Withdraw';
+import { Queries } from './Queries';
 
 export default function PortalApp() {
   const nav = useNavigate();
@@ -29,6 +31,8 @@ export default function PortalApp() {
     { group: 'Portfolio' }, { to: '/portal', label: 'Overview', icon: 'home' }, { to: '/portal/investments', label: 'My Investments', icon: 'invest' },
     { to: '/portal/returns', label: 'ROI Released', icon: 'roi' },
     { to: '/portal/network', label: 'My People', icon: 'users' },
+    { to: '/portal/withdraw', label: 'Withdraw', icon: 'payout' },
+    { to: '/portal/queries', label: 'Ask a query', icon: 'announce' },
     { to: '/portal/properties', label: 'Explore Properties', icon: 'building' },
     { to: '/portal/announcements', label: 'Announcements', icon: 'announce', count: counts.data?.announcements },
     { group: 'Account' }, { to: '/portal/profile', label: 'Profile & Security', icon: 'user' }
@@ -36,7 +40,7 @@ export default function PortalApp() {
   return (
     <>
     <Routes>
-      <Route element={<Shell base="/portal" roleLabel="IB portal" nav={items} searchPh="Search my transactions" onSearch={q => nav('/portal/transactions?q=' + encodeURIComponent(q))} />}>
+      <Route element={<Shell base="/portal" roleLabel="Investor portal" nav={items} searchPh="Search my transactions" onSearch={q => nav('/portal/transactions?q=' + encodeURIComponent(q))} />}>
         <Route index element={<Overview />} />
         <Route path="investments" element={<Investments />} />
         <Route path="investments/:code" element={<InvestmentDetail />} />
@@ -48,6 +52,8 @@ export default function PortalApp() {
         <Route path="statement" element={<Statement />} />
         <Route path="announcements" element={<Announcements />} />
         <Route path="network" element={<MyNetwork page />} />
+        <Route path="withdraw" element={<Withdraw />} />
+        <Route path="queries" element={<Queries />} />
         <Route path="notifications" element={<Notifications />} />
         <Route path="profile" element={<ProfileSecurity />} />
         <Route path="*" element={<Overview />} />
